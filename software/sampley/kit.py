@@ -1,8 +1,10 @@
 """Наборы (киты) на карте памяти.
 
-Кит — папка: 16 WAV-файлов (pad01.wav … pad16.wav) + kit.json с настройками
-пэдов, темпом и паттернами. Папки можно копировать на компьютер и обратно,
-а WAV — заменять своими (имя пэда берётся из kit.json, иначе из имени файла).
+Кит — папка: WAV-файлы (s01.wav, s02.wav, …) + kit.json с настройками
+64 пэдов (4 банка), темпом и паттернами. Если звук нарезан CHOP-ом по
+16 пэдам, он хранится один раз, а пэды ссылаются на него с разными
+началом/концом. Папки можно копировать на компьютер и обратно, WAV —
+заменять своими.
 """
 
 from __future__ import annotations
@@ -27,17 +29,23 @@ def list_kits(root: str = KITS_DIR) -> list[str]:
 def save_kit(engine: Engine, name: str, root: str = KITS_DIR) -> str:
     path = os.path.join(root, name)
     os.makedirs(path, exist_ok=True)
+    files: dict[int, str] = {}                       # id(звука) → имя файла
     pads = []
-    for i, p in enumerate(engine.pads):
-        wav = f"pad{i + 1:02d}.wav"
+    for p in engine.pads[:PADS]:                 # последний — служебный (прослушка)
+        wav = None
         if p.sample is not None:
-            save_wav(p.sample, os.path.join(path, wav))
-        elif os.path.exists(os.path.join(path, wav)):
-            os.remove(os.path.join(path, wav))
-        pads.append({"file": wav if p.sample else None, "name": p.name, "volume": p.volume,
+            wav = files.get(id(p.sample))
+            if wav is None:
+                wav = files[id(p.sample)] = f"s{len(files) + 1:02d}.wav"
+                save_wav(p.sample, os.path.join(path, wav))
+        pads.append({"file": wav, "name": p.name, "volume": p.volume,
                      "pitch": p.pitch, "pan": p.pan, "start": p.start, "end": p.end,
-                     "mode": p.mode.name, "choke": p.choke, "reverse": p.reverse})
-    meta = {"version": 1, "bpm": engine.seq.bpm, "swing": engine.seq.swing, "master": engine.master,
+                     "mode": p.mode.name, "choke": p.choke, "reverse": p.reverse, "label": p.label})
+    used = set(files.values())
+    for f in os.listdir(path):                       # убрать звуки, которые больше не нужны
+        if f.endswith(".wav") and f not in used:
+            os.remove(os.path.join(path, f))
+    meta = {"version": 2, "bpm": engine.seq.bpm, "swing": engine.seq.swing, "master": engine.master,
             "pads": pads,
             "patterns": [[[s for s, on in enumerate(row) if on] for row in pat.grid]
                          for pat in engine.seq.patterns]}
@@ -53,15 +61,19 @@ def load_kit(engine: Engine, name: str, root: str = KITS_DIR) -> None:
     with open(os.path.join(path, "kit.json"), encoding="utf-8") as f:
         meta = json.load(f)
     engine.stop_all()
+    cache = {}
     for i in range(PADS):
         d = meta["pads"][i] if i < len(meta.get("pads", [])) else {}
         sample = None
-        if d.get("file") and os.path.exists(os.path.join(path, d["file"])):
-            sample = load_wav(os.path.join(path, d["file"]), d.get("name"))
+        fn = d.get("file")
+        if fn and os.path.exists(os.path.join(path, fn)):
+            if fn not in cache:
+                cache[fn] = load_wav(os.path.join(path, fn), d.get("name"))
+            sample = cache[fn]
         engine.pads[i] = Pad(sample=sample, volume=d.get("volume", 0.8), pitch=d.get("pitch", 0.0),
                              pan=d.get("pan", 0.0), start=d.get("start", 0.0), end=d.get("end", 1.0),
                              mode=Mode[d.get("mode", "ONESHOT")], choke=d.get("choke", 0),
-                             reverse=d.get("reverse", False))
+                             reverse=d.get("reverse", False), label=d.get("label"))
     engine.seq.bpm = meta.get("bpm", 120)
     engine.seq.swing = meta.get("swing", 0.0)
     engine.master = meta.get("master", 0.8)

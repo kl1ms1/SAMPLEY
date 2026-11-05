@@ -90,3 +90,56 @@ class EngineTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PerformanceFeaturesTest(unittest.TestCase):
+    def setUp(self):
+        self.e = Engine(max_voices=16, master=1.0)
+        self.e.pads[0].sample = Sample.from_mono("click", np.ones(50, dtype=np.float32))
+
+    def hits(self, out):
+        x = np.abs(out[:, 0]) > 0.01
+        return int(np.count_nonzero(x[1:] & ~x[:-1]) + x[0])
+
+    def test_note_repeat_follows_tempo(self):
+        self.e.seq.bpm = 120
+        self.e.repeat_rate = "1/16"
+        self.e.repeat_on(0)
+        out = np.concatenate([self.e.render(256) for _ in range(int(44100 / 256))])   # ≈1 с
+        self.assertEqual(self.hits(out), 8)                 # 120 BPM: 8 шестнадцатых в секунду
+        self.e.repeat_off(0)
+        out = np.concatenate([self.e.render(256) for _ in range(50)])
+        self.assertEqual(self.hits(out), 0)
+
+    def test_levels_keys_are_polyphonic(self):
+        self.e.pads[0].sample = tone(44100)
+        self.e.note_on(0, semis=0, key=("lv", 0))
+        self.e.note_on(0, semis=7, key=("lv", 7))
+        self.e.render(256)
+        self.assertEqual(len([v for v in self.e.voices if v.releasing < 0]), 2)
+        self.assertAlmostEqual(self.e.voices[1].rate, 2 ** (7 / 12))
+
+    def test_fader_tune_speeds_up(self):
+        self.e.pads[0].sample = tone(4410)
+        self.e.tune = 12
+        self.e.note_on(0)
+        n = 0
+        while True:
+            self.e.render(64)
+            if not self.e.voices:
+                break
+            n += 64
+        self.assertAlmostEqual(n, 4410 / 2, delta=128)
+
+    def test_filter_cuts_highs(self):
+        rng = np.random.default_rng(0)
+        self.e.pads[0].sample = Sample.from_mono("шум", rng.uniform(-0.5, 0.5, 44100).astype(np.float32))
+        self.e.note_on(0)
+        dry = self.e.render(4096)
+        self.e.stop_all(); self.e.render(512)
+        self.e.filter = -0.9
+        self.e.note_on(0)
+        self.e.render(1024)
+        wet = self.e.render(4096)
+        hf = lambda x: np.abs(np.diff(x[:, 0])).mean()
+        self.assertLess(hf(wet), hf(dry) * 0.2)

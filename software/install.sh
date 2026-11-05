@@ -10,7 +10,7 @@ CONFIG=/boot/firmware/config.txt
 echo "== пакеты"
 apt-get update
 apt-get install -y python3-numpy python3-pil python3-spidev python3-gpiozero python3-serial \
-    python3-smbus2 libportaudio2 fonts-dejavu-core python3-pip
+    python3-smbus2 python3-scipy libportaudio2 fonts-dejavu-core python3-pip
 pip3 install --break-system-packages sounddevice
 
 echo "== $CONFIG"

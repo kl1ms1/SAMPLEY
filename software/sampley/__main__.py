@@ -14,7 +14,8 @@ import time
 
 from .app import App, Screen
 from .board import detect
-from .controls import KEY_BUTTONS, KEY_ENC_PUSH, KEY_ENCODERS, KEY_PADS, Button, Event, Kind
+from .controls import (FADER, KEY_BUTTONS, KEY_ENC_PUSH, KEY_ENCODERS, KEY_FADER, KEY_PADS, Button, Event,
+                       Kind)
 from .engine import Engine
 from .kit import load_default, load_kit, list_kits, KITS_DIR
 from . import ui
@@ -62,15 +63,30 @@ def demo(out_dir: str) -> int:
     shots["play"] = ui.render(app)
     app.handle(Event(Kind.BUTTON, value=1, button=Button.SHIFT))
     shots["shift"] = ui.render(app)
-    app.handle(Event(Kind.BUTTON, value=1, button=Button.PLAY))
     app.handle(Event(Kind.BUTTON, value=0, button=Button.SHIFT))
+    app.handle(Event(Kind.BUTTON, value=1, button=Button.STEP))
     shots["step"] = ui.render(app)
-    app.screen = Screen.PLAY
+    app.go(Screen.PLAY)
     eng.seq.stop()
-    app.handle(Event(Kind.BUTTON, value=1, button=Button.REC))
+    app.handle(Event(Kind.BUTTON, value=1, button=Button.SAMPLE))
     eng.recorder.level = 0.35
     shots["sample"] = ui.render(app)
-    app.screen = Screen.KITS
+    app.go(Screen.PLAY)
+    # «запись с улицы»: склеим несколько ударов в один звук и порежем его
+    from .kit_synth import clap, kick, snare, tom
+    phrase = np.concatenate([kick()[:9000], snare()[:7000], tom(160)[:8000], clap()[:6000],
+                             kick()[:5000], tom(110)[:9000]])
+    app.selected = 16                                         # пэд B1
+    eng.pads[16].sample = Sample.from_mono("Улица 1", phrase).normalized(0.8)
+    app.bank = 1
+    app.handle(Event(Kind.BUTTON, value=1, button=Button.CHOP))
+    app.chopper.cursor = 2
+    shots["chop"] = ui.render(app)
+    app.handle(Event(Kind.ENC_PUSH, 3, 1))
+    app.toast = ""
+    shots["bank_b"] = ui.render(app)
+    app.bank = 0
+    app.handle(Event(Kind.BUTTON, value=1, button=Button.KITS))
     shots["kits"] = ui.render(app)
     for name, img in shots.items():
         img.resize((640, 480)).save(os.path.join(out_dir, f"screen_{name}.png"))
@@ -98,11 +114,12 @@ def sim() -> int:
 
     pygame.init()
     scale = 2
-    win = pygame.display.set_mode((ui.W * scale, ui.H * scale + 60))
+    win = pygame.display.set_mode((ui.W * scale, ui.H * scale + 76))
     pygame.display.set_caption("SAMPLEY — симуляция")
     hint = pygame.font.SysFont(None, 20)
-    lines = ["Пэды: 1234 / qwer / asdf / zxcv    Энкодеры: 5-6  t-y  g-h  b-n (нажатие: 7 u j m)",
-             "Shift — SHIFT,  Пробел — PLAY,  Enter — REC,  колесо мыши — энкодер 1,  Esc — выход"]
+    lines = ["Пэды 1234/qwer/asdf/zxcv · K1 5-6, K2 t-y, K3 g-h (нажать 7 u j) · колесо ←→ (нажать ↓, мышь)",
+             "Shift SHIFT · Пробел PLAY · Backspace STOP · Enter REC · Tab REPEAT · [ ] фейдер",
+             "F1 SAMPLE F2 STEP F3 CHOP F4 MUTE F5 MODE F6 LEVELS F7 BANK F8 TAP F9 BROWSE F10 KITS · Esc выход"]
 
     def key_name(k):
         n = pygame.key.name(k)
@@ -125,19 +142,24 @@ def sim() -> int:
                     app.handle(Event(Kind.BUTTON, value=down, button=KEY_BUTTONS[k]))
                 elif k in KEY_ENC_PUSH:
                     app.handle(Event(Kind.ENC_PUSH, KEY_ENC_PUSH.index(k), down))
+                elif down and k in KEY_FADER:
+                    v = app.fader + (0.05 if k == KEY_FADER[1] else -0.05)
+                    app.handle(Event(Kind.ANALOG, FADER, round(max(0.0, min(1.0, v)) * 1023)))
                 elif down:
                     for i, (dec, inc) in enumerate(KEY_ENCODERS):
                         if k in (dec, inc):
                             app.handle(Event(Kind.ENCODER, i, -1 if k == dec else 1))
+            elif e.type == pygame.MOUSEBUTTONDOWN and e.button == 2:
+                app.handle(Event(Kind.ENC_PUSH, 3, 1))
             elif e.type == pygame.MOUSEWHEEL:
-                app.handle(Event(Kind.ENCODER, 0, e.y))
+                app.handle(Event(Kind.ENCODER, 3, e.y))
         app.tick()
         img = ui.render(app)
         surf = pygame.image.fromstring(img.tobytes(), img.size, "RGB")
         win.fill((0, 0, 0))
         win.blit(pygame.transform.scale(surf, (ui.W * scale, ui.H * scale)), (0, 0))
         for i, t in enumerate(lines):
-            win.blit(hint.render(t, True, (180, 180, 180)), (8, ui.H * scale + 8 + i * 22))
+            win.blit(hint.render(t, True, (180, 180, 180)), (8, ui.H * scale + 6 + i * 22))
         pygame.display.flip()
         clock.tick(30)
     if audio:
@@ -186,7 +208,7 @@ def device() -> int:
                 display.show(ui.render(app))
                 app.dirty = False
             if mcu:
-                mcu.set_leds(app.pad_colors())
+                mcu.set_leds(app.led_colors())
             time.sleep(max(0.0, frame - (time.monotonic() - t0)))
     except KeyboardInterrupt:
         pass

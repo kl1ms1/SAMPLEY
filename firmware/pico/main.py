@@ -1,61 +1,81 @@
 # SAMPLEY — прошивка микроконтроллера кнопок (MicroPython, Raspberry Pi Pico / RP2040).
 #
 # Что делает:
-#   * сканирует матрицу 5×5: 16 пэдов, SHIFT/REC/PLAY, нажатия 4 энкодеров;
-#   * читает 4 энкодера EC11 (без упора);
-#   * светит 16 RGB-светодиодов под пэдами (WS2812 / SK6812);
-#   * управляет питанием («защёлка»): ползунок включает стабилизатор 3.3 В
-#     этого микроконтроллера, он сразу сам себя «держит» (GP27 HOLD) и
-#     включает 5 В → Pi грузится. Ползунок выкл → сказать Pi «выключайся» →
-#     дождаться, пока Pi остановится (GPIO26 Pi → GP26 здесь) → снять 5 В и
-#     отпустить HOLD: выключается всё, включая этот микроконтроллер.
-#     В выключенном состоянии от аккумулятора ничего не тратится.
+#   * сканирует матрицу 6×6: 16 пэдов, 15 кнопок, нажатия 3 крутилок и колеса;
+#   * читает 3 крутилки K1–K3 и большое колесо (энкодеры EC11, по прерываниям);
+#   * читает фейдер и ручку громкости (АЦП);
+#   * светит подсветку: 16 пэдов + 15 кнопок одной цепочкой WS2812 / SK6812;
+#   * управляет питанием («защёлка», только на своей плате, см. POWER_CONTROL);
 #   * говорит с Pi по UART текстом (протокол — software/sampley/controls.py).
 #
 # Залить: Thonny → «MicroPython (Raspberry Pi Pico)» → сохранить как main.py на Pico.
 #
-# Подключение (вид со стороны Pico):
-#   GP0  UART TX  → Pi GPIO15 (RX)        GP12/13  энкодер 1 A/B
-#   GP1  UART RX  ← Pi GPIO14 (TX)        GP14/15  энкодер 2 A/B
-#   GP2…GP6   строки матрицы (выходы)     GP16/17  энкодер 3 A/B
-#   GP7…GP11  столбцы матрицы (входы)     GP18/19  энкодер 4 A/B
-#   GP20 данные светодиодов WS2812        GP21     ползунок питания (к GND = ВКЛ)
-#   GP22 включение 5 В (EN бустера)       GP26     «Pi выключилась» (GPIO26 Pi)
-#   GP27 HOLD — держать своё питание 3.3 В (на плате; на макетке не нужен)
-# В матрице на каждой кнопке диод 1N4148W (катод к строке) — чтобы нажатия
-# нескольких пэдов сразу читались правильно.
+# Подключение (Pico):
+#   GP0  UART TX → Pi GPIO15 (RX)          GP14/15  K1 A/B
+#   GP1  UART RX ← Pi GPIO14 (TX)          GP16/17  K2 A/B
+#   GP2…GP7   строки матрицы (выходы)      GP18/19  K3 A/B
+#   GP8…GP13  столбцы матрицы (входы)      GP20/21  колесо A/B
+#   GP22 данные подсветки                  GP26 (АЦП0) фейдер — средний вывод
+#   GP27 (АЦП1) ручка громкости            GP28 ползунок питания (к GND = ВКЛ)
+# Только на своей плате (голый RP2040, у Pico эти ноги заняты внутри):
+#   GP23 HOLD — держать своё питание       GP24 включить 5 В (EN бустера)
+#   GP25 «Pi выключилась» (GPIO26 Pi)
+#
+# Потенциометры — между 3V3(OUT)/ADC_VREF и AGND, средний вывод на АЦП.
+# В матрице на каждой кнопке диод 1N4148W (катод к строке).
 
 import machine
 import neopixel
 import time
-from machine import Pin, UART
+from machine import ADC, Pin, UART
 
-VERSION = "sampley-mcu 1"
-# На макетке Pico питается от Pi, бустера нет — управление питанием выключено.
+VERSION = "sampley-mcu 2"
+# На макетке Pico питается от Pi (питание — UPS-Lite), защёлки нет.
 POWER_CONTROL = False
 LED_BRIGHTNESS = 0.35          # подсветка ярче — меньше работает от батареи
 
 uart = UART(0, 115200, tx=Pin(0), rx=Pin(1))
-rows = [Pin(n, Pin.OUT, value=1) for n in (2, 3, 4, 5, 6)]
-cols = [Pin(n, Pin.IN, Pin.PULL_UP) for n in (7, 8, 9, 10, 11)]
+rows = [Pin(n, Pin.OUT, value=1) for n in (2, 3, 4, 5, 6, 7)]
+cols = [Pin(n, Pin.IN, Pin.PULL_UP) for n in (8, 9, 10, 11, 12, 13)]
 enc_pins = [(Pin(a, Pin.IN, Pin.PULL_UP), Pin(b, Pin.IN, Pin.PULL_UP))
-            for a, b in ((12, 13), (14, 15), (16, 17), (18, 19))]
-leds = neopixel.NeoPixel(Pin(20), 16)
-slider = Pin(21, Pin.IN, Pin.PULL_UP)
-boost_en = Pin(22, Pin.OUT, value=0 if POWER_CONTROL else 1)
-pi_halted = Pin(26, Pin.IN, Pin.PULL_DOWN)
-hold = Pin(27, Pin.OUT, value=1)               # первым делом — удержать своё питание
+            for a, b in ((14, 15), (16, 17), (18, 19), (20, 21))]
+pots = [ADC(26), ADC(27)]                       # 0 — фейдер, 1 — громкость
+slider = Pin(28, Pin.IN, Pin.PULL_UP)
 
-# Что стоит в каждой клетке матрицы (строка, столбец) → строка протокола.
+# Порядок светодиодов кнопок после 16 пэдов — как BUTTON_LEDS в controls.py.
+BUTTON_LEDS = ["SHIFT", "PLAY", "STOP", "REC", "SAMPLE", "STEP", "CHOP", "MUTE",
+               "MODE", "LEVELS", "BANK", "REPEAT", "TAP", "BROWSE", "KITS"]
+NUM_LEDS = 16 + len(BUTTON_LEDS)
+leds = neopixel.NeoPixel(Pin(22), NUM_LEDS)
+
+if POWER_CONTROL:
+    hold = Pin(23, Pin.OUT, value=1)            # первым делом — удержать своё питание
+    boost_en = Pin(24, Pin.OUT, value=1)        # раз нас включили — ползунок уже «вкл»
+    pi_halted = Pin(25, Pin.IN, Pin.PULL_DOWN)
+
+# Что стоит в каждой клетке матрицы (строка, столбец).
 KEYMAP = {}
 for r in range(4):
     for c in range(4):
         KEYMAP[(r, c)] = ("P", r * 4 + c)
 for i in range(4):
-    KEYMAP[(i, 4)] = ("K", i)                          # нажатия энкодеров
-KEYMAP[(4, 0)] = ("B", "SHIFT")
-KEYMAP[(4, 1)] = ("B", "REC")
-KEYMAP[(4, 2)] = ("B", "PLAY")
+    KEYMAP[(i, 4)] = ("K", i)                   # нажатия K1, K2, K3, колеса
+KEYMAP[(0, 5)] = ("B", "SHIFT")
+KEYMAP[(1, 5)] = ("B", "PLAY")
+KEYMAP[(2, 5)] = ("B", "STOP")
+KEYMAP[(3, 5)] = ("B", "REC")
+KEYMAP[(4, 0)] = ("B", "SAMPLE")
+KEYMAP[(4, 1)] = ("B", "STEP")
+KEYMAP[(4, 2)] = ("B", "CHOP")
+KEYMAP[(4, 3)] = ("B", "MUTE")
+KEYMAP[(4, 4)] = ("B", "MODE")
+KEYMAP[(4, 5)] = ("B", "LEVELS")
+KEYMAP[(5, 0)] = ("B", "BANK")
+KEYMAP[(5, 1)] = ("B", "REPEAT")
+KEYMAP[(5, 2)] = ("B", "TAP")
+KEYMAP[(5, 3)] = ("B", "BROWSE")
+KEYMAP[(5, 4)] = ("B", "KITS")
+# (5, 5) — запас
 
 DEBOUNCE_MS = 5
 state = {k: False for k in KEYMAP}
@@ -114,7 +134,28 @@ def scan_encoders():
             send("E %d %d" % (i, clicks))
 
 
+pot_smooth = [p.read_u16() for p in pots]
+pot_sent = [-100, -100]
+pot_last_ms = 0
+
+
+def scan_pots(now):
+    # 100 раз в секунду, со сглаживанием; шлём, только если сдвинулось заметно
+    global pot_last_ms
+    if time.ticks_diff(now, pot_last_ms) < 10:
+        return
+    pot_last_ms = now
+    for i, p in enumerate(pots):
+        pot_smooth[i] += (p.read_u16() - pot_smooth[i]) // 4
+        v = pot_smooth[i] >> 6                        # 0…1023
+        if abs(v - pot_sent[i]) >= 4 or (v in (0, 1023) and v != pot_sent[i]):
+            pot_sent[i] = v
+            send("A %d %d" % (i, v))
+
+
 def set_led(i, hexrgb):
+    if i >= NUM_LEDS:
+        return
     v = int(hexrgb, 16)
     k = LED_BRIGHTNESS
     leds[i] = (int(((v >> 16) & 255) * k), int(((v >> 8) & 255) * k), int((v & 255) * k))
@@ -136,50 +177,50 @@ def handle_uart():
         if not parts:
             continue
         try:
-            if parts[0] == "L" and len(parts) == 3:
-                set_led(int(parts[1]), parts[2])
-                dirty = True
-            elif parts[0] == "LA":
-                for i, h in enumerate(parts[1:17]):
+            if parts[0] == "LA":
+                for i, h in enumerate(parts[1:]):
                     set_led(i, h)
                 dirty = True
             elif parts[0] == "?":
                 send("V " + VERSION)
                 send("S " + ("ON" if slider.value() == 0 else "OFF"))
-            elif parts[0] == "Z":
-                pass                                   # Pi сама выключается; ждём pi_halted
+                pot_sent[0] = pot_sent[1] = -100       # заново прислать фейдер и громкость
         except ValueError:
             pass
     if dirty:
         leds.write()
 
 
-# --- питание ----------------------------------------------------------------
-OFF, ON, STOPPING = 0, 1, 2
+# --- питание (только на своей плате) -----------------------------------------
+ON, STOPPING, OFF = 0, 1, 2
 power = ON
-if POWER_CONTROL:
-    boost_en.value(1)                          # раз нас включили — ползунок уже «вкл»
 stop_started = 0
 STOP_TIMEOUT_MS = 30000
 
 
 def power_step(now):
+    # Ползунок «выкл» → сказать Pi → ждать, пока Linux остановится → снять 5 В →
+    # отпустить HOLD: питание пропадает у всего, включая этот микроконтроллер.
     global power, stop_started
     if not POWER_CONTROL:
         return
     want_on = slider.value() == 0
     if power == ON and not want_on:
-        send("S OFF")                                  # Pi сохранит кит и выключится
+        send("S OFF")                                  # Pi сохранит всё и выключится
         power, stop_started = STOPPING, now
     elif power == STOPPING:
-        timeout = time.ticks_diff(now, stop_started) > STOP_TIMEOUT_MS
-        if pi_halted.value() or timeout:
+        if pi_halted.value() or time.ticks_diff(now, stop_started) > STOP_TIMEOUT_MS:
             time.sleep_ms(1500)                        # дать карте памяти дописать
             leds.fill((0, 0, 0))
             leds.write()
             boost_en.value(0)
-            hold.value(0)                          # отпустить защёлку: питание МК пропадёт
+            hold.value(0)
             power = OFF
+    elif power == OFF and want_on:
+        # ползунок включили обратно, пока гасли (защёлка держится через ползунок)
+        hold.value(1)
+        boost_en.value(1)
+        power = ON
 
 
 leds.fill((0, 0, 0))
@@ -189,14 +230,9 @@ while True:
     now = time.ticks_ms()
     power_step(now)
     if power == OFF:
-        # Сюда попадаем, только если ползунок снова включили, пока гасли
-        # (защёлка ещё держится через ползунок): включаемся заново.
-        if slider.value() == 0:
-            hold.value(1)
-            boost_en.value(1)
-            power = ON
         time.sleep_ms(20)
         continue
     scan_keys(now)
     scan_encoders()
+    scan_pots(now)
     handle_uart()
