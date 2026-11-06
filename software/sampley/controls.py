@@ -14,7 +14,7 @@ RP2040 (на макетке — Raspberry Pi Pico). Он же светит по�
   S <ON|OFF>   ползунок питания
   V <версия>
 
-Крутилки: 0–2 — K1…K3 под экраном, 3 — большое колесо справа.
+Крутилки: 0–2 — K1…K3 под экраном, 3 — энкодер DATA слева от экрана.
 """
 
 from __future__ import annotations
@@ -118,7 +118,7 @@ def leds_line(colors: list[tuple[int, int, int]]) -> str:
 
 # --- клавиатура компьютера в симуляции ---------------------------------------
 KEY_PADS = "1234qwerasdfzxcv"                 # сетка 4×4 как на устройстве
-KEY_ENCODERS = [("5", "6"), ("t", "y"), ("g", "h"), ("left", "right")]   # K1, K2, K3, колесо
+KEY_ENCODERS = [("5", "6"), ("t", "y"), ("g", "h"), ("left", "right")]   # K1, K2, K3, DATA
 KEY_ENC_PUSH = ["7", "u", "j", "down"]
 KEY_BUTTONS = {
     "shift": Button.SHIFT, "space": Button.PLAY, "backspace": Button.STOP, "return": Button.REC,

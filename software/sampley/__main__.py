@@ -117,7 +117,7 @@ def sim() -> int:
     win = pygame.display.set_mode((ui.W * scale, ui.H * scale + 76))
     pygame.display.set_caption("SAMPLEY — симуляция")
     hint = pygame.font.SysFont(None, 20)
-    lines = ["Пэды 1234/qwer/asdf/zxcv · K1 5-6, K2 t-y, K3 g-h (нажать 7 u j) · колесо ←→ (нажать ↓, мышь)",
+    lines = ["Пэды 1234/qwer/asdf/zxcv · K1 5-6, K2 t-y, K3 g-h (нажать 7 u j) · DATA ←→ (нажать ↓, колесо мыши)",
              "Shift SHIFT · Пробел PLAY · Backspace STOP · Enter REC · Tab REPEAT · [ ] фейдер",
              "F1 SAMPLE F2 STEP F3 CHOP F4 MUTE F5 MODE F6 LEVELS F7 BANK F8 TAP F9 BROWSE F10 KITS · Esc выход"]
 

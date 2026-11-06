@@ -17,7 +17,7 @@ BROWSE (библиотека звуков), KITS (наборы).
   REPEAT держать + пэд — дробь в темп (SHIFT — 1/8, 1/16, 1/16т, 1/32)
   TAP    тап-темп (SHIFT — фейдер: тон / фильтр)
   BROWSE библиотека записей и WAV       KITS  сохранить / загрузить набор
-Крутилки K1–K3 — то, что подписано внизу экрана; колесо — темп / выбор.
+Крутилки K1–K3 — то, что подписано внизу экрана; энкодер DATA (слева от экрана) — темп / выбор.
 Фейдер — общий тон или DJ-фильтр. Ручка VOLUME — общая громкость.
 """
 
@@ -335,7 +335,7 @@ class App:
                 s, e = ch.slices[ch.cursor]
                 self.preview(ch.sample, s / ch.sample.frames, e / ch.sample.frames)
             return
-        if enc == 3:                                                # колесо — темп
+        if enc == 3:                                                # DATA — темп
             seq.bpm = round(max(40, min(300, seq.bpm + clicks * (10 if self.shift else 1))))
             return
         if self.shift:
@@ -471,9 +471,9 @@ class App:
         sc = self.screen
         empty = ("", "")
         if sc is Screen.SAMPLE:
-            return [("Порог", f"{r.threshold:.3f}"), empty, empty, ("Колесо", "сразу")]
+            return [("Порог", f"{r.threshold:.3f}"), empty, empty, ("Старт", "сразу")]
         if sc in (Screen.KITS, Screen.BROWSE):
-            return [("Выбор", "↕"), empty, empty, ("Колесо", "↕ / OK")]
+            return [("Выбор", "↕"), empty, empty, ("Выбор", "OK")]
         if sc is Screen.CHOP and self.chopper:
             ch = self.chopper
             amt = f"{round(ch.sensitivity * 100)}%" if ch.mode.name == "AUTO" else f"{ch.count} шт"

@@ -130,7 +130,7 @@ def _header(d: ImageDraw.ImageDraw, app: App):
 def _footer(d: ImageDraw.ImageDraw, app: App):
     y = H - 34
     d.line([0, y - 2, W, y - 2], fill=(40, 40, 50))
-    names = ["K1", "K2", "K3", "◎"]
+    names = ["K1", "K2", "K3", "DATA"]
     for i, (label, value) in enumerate(app.encoder_labels()):
         x = i * W // 4 + W // 8
         if label:
@@ -245,7 +245,7 @@ def render(app: App) -> Image.Image:
             d.line([mx, y0 - 2, mx, y0 + h + 2], fill=BANK_COLORS[app.bank])
             if i < 16:
                 d.text((mx + 2, y0 + h + 3), str(i + 1), font=F_S, fill=FG if i == ch.cursor else DIM)
-        d.text((6, 160), f"Колесо ◎ — срез, нажать ◎ — на пэды банка {BANK_NAMES[app.bank]}", font=F_S, fill=DIM)
+        d.text((6, 160), f"DATA — срез, нажать DATA — на пэды банка {BANK_NAMES[app.bank]}", font=F_S, fill=DIM)
         d.text((6, 174), "Пэды — послушать · MODE — авто/ровно · CHOP — выход", font=F_S, fill=DIM)
 
     elif sc is Screen.BROWSE:
