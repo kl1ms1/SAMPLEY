@@ -17,6 +17,12 @@ BROWSE (библиотека звуков), KITS (наборы).
   REPEAT держать + пэд — дробь в темп (SHIFT — 1/8, 1/16, 1/16т, 1/32)
   TAP    тап-темп (SHIFT — фейдер: тон / фильтр)
   BROWSE библиотека записей и WAV       KITS  сохранить / загрузить набор
+  STUTTER держать — повтор куска звука «а-а-а-а» (SHIFT — зафиксировать)
+Вертушки (два диска по бокам экрана, как у диджея): на каждой лежит свой пэд.
+Палец сверху + крутишь — скретч, отпустил — играет дальше; крутишь за край —
+подгонка скорости. Палец на вертушке + пэд — положить этот пэд на вертушку.
+SHIFT + вертушка — DJ-фильтр. Пока держишь STUTTER, правая вертушка меняет
+длину повтора (1/4 … 1/64, «разгон»). В CHOP левая двигает начало среза.
 Крутилки K1–K3 — то, что подписано внизу экрана; энкодер DATA (слева от экрана) — темп / выбор.
 Фейдер — общий тон или DJ-фильтр. Ручка VOLUME — общая громкость.
 """
@@ -31,7 +37,7 @@ from . import kit as kits
 from . import library
 from .chop import Chopper
 from .controls import BUTTON_LEDS, FADER, VOLUME, Button, Event, Kind
-from .engine import REPEAT_RATES, Engine, Mode
+from .engine import REPEAT_RATES, STUTTER_DIVS, Engine, Mode
 from .recorder import RecState
 from .sample import load_wav
 from .sequencer import BANK_SIZE, BANKS, PADS, PATTERNS
@@ -85,6 +91,11 @@ class App:
         self.mute_mode = False
         self.levels_mode = False
         self.repeat_held = False
+        self.stutter_latched = False
+        self.stutter_held = False
+        self._jog_acc = 0                   # копим поворот правой вертушки для ступенек STUTTER
+        self.jog_touch = [False, False]
+        self.decks = [j["pad"] for j in engine.jogs]
         self.fader_mode = "Тон"
         self.fader = 0.5
         self.chopper: Chopper | None = None
@@ -160,6 +171,8 @@ class App:
                 self.shift = bool(ev.value)
             elif ev.button is Button.REPEAT and not self.shift:
                 self._repeat_button(bool(ev.value))
+            elif ev.button is Button.STUTTER:
+                self._stutter_button(bool(ev.value))
             elif ev.value:
                 self._button(ev.button)
         elif ev.kind is Kind.ENCODER:
@@ -168,6 +181,11 @@ class App:
             self._push(ev.index)
         elif ev.kind is Kind.ANALOG:
             self._analog(ev.index, ev.value / 1023)
+        elif ev.kind is Kind.JOG:
+            self._jog(ev.index, ev.value)
+        elif ev.kind is Kind.JOG_TOUCH:
+            self.jog_touch[ev.index] = bool(ev.value)
+            self.engine.jog_touch(ev.index, bool(ev.value))
         elif ev.kind is Kind.POWER and not ev.value:
             self.shutdown()
 
@@ -175,6 +193,12 @@ class App:
         i, vel = ev.index, ev.velocity
         a = self.abs_pad(i)
         eng, sc = self.engine, self.screen
+        if sc is Screen.PLAY and any(self.jog_touch):              # палец на вертушке + пэд
+            w = 0 if self.jog_touch[0] else 1
+            eng.set_deck(w, a)
+            self.decks[w] = a
+            self.say(f"{self.pad_label(a)} → вертушка {'L' if w == 0 else 'R'}", 1.0)
+            return
         if self.shift or sc in (Screen.KITS, Screen.BROWSE):
             self.selected = a
             return
@@ -216,6 +240,44 @@ class App:
         if rep:
             self.engine.repeat_off(key)
         self.engine.note_off(pad, key)
+
+    def _stutter_button(self, down: bool) -> None:
+        eng = self.engine
+        if down and self.shift:                                     # SHIFT — зафиксировать / снять
+            self.stutter_latched = not (self.stutter_latched and eng.stuttering)
+            eng.stutter_on() if self.stutter_latched else eng.stutter_off()
+            self.say(f"STUTTER {eng.stutter_div} — держится" if self.stutter_latched else "STUTTER выкл", 1.0)
+        elif down:
+            self.stutter_latched, self.stutter_held = False, True
+            self._jog_acc = 0
+            eng.stutter_on()
+        else:
+            self.stutter_held = False
+            if not self.stutter_latched:
+                eng.stutter_off()
+
+    @property
+    def stutter_active(self) -> bool:
+        return self.stutter_held or self.stutter_latched
+
+    def _jog(self, wheel: int, counts: int) -> None:
+        eng = self.engine
+        if self.screen is Screen.CHOP and self.chopper and wheel == 0:
+            self.chopper.nudge(0, round(counts / 40))                # точная подгонка начала среза
+            return
+        if self.shift:                                              # SHIFT — DJ-фильтр
+            eng.filter = round(max(-1.0, min(1.0, eng.filter + counts * 0.0006)), 3)
+            return
+        if wheel == 1 and self.stutter_active:                      # «разгон» повторов
+            self._jog_acc += counts
+            if abs(self._jog_acc) >= 400:                           # ступенька ≈ каждые 35°
+                step = 1 if self._jog_acc > 0 else -1
+                self._jog_acc = 0
+                divs = list(STUTTER_DIVS)
+                eng.stutter_div = divs[max(0, min(len(divs) - 1, divs.index(eng.stutter_div) + step))]
+                self.say(f"Повтор {eng.stutter_div}", 0.6)
+            return
+        eng.jog(wheel, counts)
 
     def _repeat_button(self, down: bool) -> None:
         self.repeat_held = down
@@ -531,11 +593,12 @@ class App:
         on = {
             Button.SHIFT: self.shift, Button.PLAY: seq.playing, Button.REC: seq.recording,
             Button.MUTE: self.mute_mode, Button.LEVELS: self.levels_mode, Button.REPEAT: self.repeat_held,
-            Button.TAP: seq.playing and seq.step % 4 == 0,
+            Button.TAP: seq.playing and seq.step % 4 == 0, Button.STUTTER: self.stutter_active,
         }
         for screen, btn in SCREEN_BUTTON.items():
             on[btn] = self.screen is screen
         color = {Button.PLAY: (0, 255, 60), Button.REC: (255, 0, 0), Button.SAMPLE: (255, 0, 0),
+                 Button.STUTTER: (0, 200, 255),
                  Button.BANK: BANK_COLORS[self.bank]}
         out = []
         for b in BUTTON_LEDS:

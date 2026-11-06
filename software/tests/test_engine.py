@@ -143,3 +143,69 @@ class PerformanceFeaturesTest(unittest.TestCase):
         wet = self.e.render(4096)
         hf = lambda x: np.abs(np.diff(x[:, 0])).mean()
         self.assertLess(hf(wet), hf(dry) * 0.2)
+
+
+class ScratchStutterTest(unittest.TestCase):
+    def setUp(self):
+        self.e = Engine(max_voices=8, master=1.0)
+        ramp = np.linspace(0, 1, 44100, dtype=np.float32)          # «звук», по которому видно позицию
+        self.e.pads[0].sample = Sample.from_mono("рампа", ramp)
+
+    def test_touch_scratch_forward_back_and_hold(self):
+        self.e.set_deck(0, 0)
+        self.e.jog_touch(0, True)
+        for _ in range(10):
+            self.e.jog(0, 60)                                         # палец крутит вперёд
+            self.e.render(256)
+        v = self.e.voices[0]
+        self.assertIsNotNone(v.scratch)
+        fwd = v.pos
+        self.assertGreater(fwd, 1000)
+        for _ in range(10):
+            self.e.jog(0, -60)                                        # и назад
+            self.e.render(256)
+        self.assertLess(self.e.voices[0].pos, fwd)
+        for _ in range(20):                                           # палец держит неподвижно
+            self.e.render(256)
+        held = self.e.voices[0].pos
+        self.e.render(256)
+        self.assertAlmostEqual(self.e.voices[0].pos, held, delta=2)   # пластинка стоит
+        self.assertTrue(self.e.scratching)
+        self.e.jog_touch(0, False)                                    # отпустил — поехала
+        self.e.render(256)
+        self.assertFalse(self.e.scratching)
+        self.assertGreater(self.e.voices[0].pos, held + 200)
+
+    def test_rim_spin_bends_speed(self):
+        self.e.jog_touch(1, False)                                    # у вертушки есть датчик касания
+        self.e.set_deck(1, 0)
+        self.e.note_on(0)
+        self.e.render(256)
+        for _ in range(8):
+            self.e.jog(1, 80)                                         # за край вперёд
+            self.e.render(256)
+        self.assertGreater(self.e.voices[0].bend, 0.05)
+        self.assertIsNone(self.e.voices[0].scratch)
+
+    def test_no_touch_sensor_spin_is_scratch(self):
+        for _ in range(5):
+            self.e.jog(0, 40)
+            self.e.render(256)
+        self.assertTrue(self.e.scratching)
+        for _ in range(40):                                           # диск стоит → «отпустил»
+            self.e.render(256)
+        self.assertFalse(self.e.scratching)
+
+    def test_stutter_repeats_slice(self):
+        self.e.seq.bpm = 120
+        self.e.stutter_div = "1/16"                                    # 1/16 при 120 = 5512 кадров
+        self.e.note_on(0)
+        self.e.render(256)
+        self.e.stutter_on()
+        out = np.concatenate([self.e.render(256) for _ in range(80)])[:, 0]
+        L = int(44100 * 60 / 120 / 4)
+        a, b = out[L + 2000], out[2 * L + 2000]                         # один и тот же момент в двух повторах
+        self.assertAlmostEqual(a, b, places=4)
+        self.e.stutter_off()
+        self.e.render(256)
+        self.assertFalse(self.e.stuttering)

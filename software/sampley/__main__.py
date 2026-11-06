@@ -14,7 +14,7 @@ import time
 
 from .app import App, Screen
 from .board import detect
-from .controls import (FADER, KEY_BUTTONS, KEY_ENC_PUSH, KEY_ENCODERS, KEY_FADER, KEY_PADS, Button, Event,
+from .controls import (FADER, KEY_BUTTONS, KEY_JOG_TOUCH, KEY_JOGS, KEY_ENC_PUSH, KEY_ENCODERS, KEY_FADER, KEY_PADS, Button, Event,
                        Kind)
 from .engine import Engine
 from .kit import load_default, load_kit, list_kits, KITS_DIR
@@ -114,11 +114,12 @@ def sim() -> int:
 
     pygame.init()
     scale = 2
-    win = pygame.display.set_mode((ui.W * scale, ui.H * scale + 76))
+    win = pygame.display.set_mode((ui.W * scale, ui.H * scale + 98))
     pygame.display.set_caption("SAMPLEY — симуляция")
     hint = pygame.font.SysFont(None, 20)
     lines = ["Пэды 1234/qwer/asdf/zxcv · K1 5-6, K2 t-y, K3 g-h (нажать 7 u j) · DATA ←→ (нажать ↓, колесо мыши)",
-             "Shift SHIFT · Пробел PLAY · Backspace STOP · Enter REC · Tab REPEAT · [ ] фейдер",
+             "Shift SHIFT · Пробел PLAY · Backspace STOP · Enter REC · Tab REPEAT · B STUTTER · [ ] фейдер",
+             "Вертушки: левая o p (палец — держи 9) · правая k l (палец — 0)",
              "F1 SAMPLE F2 STEP F3 CHOP F4 MUTE F5 MODE F6 LEVELS F7 BANK F8 TAP F9 BROWSE F10 KITS · Esc выход"]
 
     def key_name(k):
@@ -142,6 +143,11 @@ def sim() -> int:
                     app.handle(Event(Kind.BUTTON, value=down, button=KEY_BUTTONS[k]))
                 elif k in KEY_ENC_PUSH:
                     app.handle(Event(Kind.ENC_PUSH, KEY_ENC_PUSH.index(k), down))
+                elif k in KEY_JOG_TOUCH:
+                    app.handle(Event(Kind.JOG_TOUCH, KEY_JOG_TOUCH[k], down))
+                elif down and k in KEY_JOGS:
+                    wheel, counts = KEY_JOGS[k]
+                    app.handle(Event(Kind.JOG, wheel, counts))
                 elif down and k in KEY_FADER:
                     v = app.fader + (0.05 if k == KEY_FADER[1] else -0.05)
                     app.handle(Event(Kind.ANALOG, FADER, round(max(0.0, min(1.0, v)) * 1023)))

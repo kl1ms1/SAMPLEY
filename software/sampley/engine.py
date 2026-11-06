@@ -1,5 +1,13 @@
 """Звуковой движок: 64 пэда (4 банка), полифония, тон, панорама, режимы,
-группы глушения, NOTE REPEAT, общий тон и DJ-фильтр с фейдера.
+группы глушения, NOTE REPEAT, общий тон и DJ-фильтр с фейдера,
+СКРЕТЧ на двух вертушках (диски-«пластинки», как у диджея) и STUTTER
+(повтор «а-а-а-а» куска того, что сейчас звучит).
+
+Вертушка: на каждой лежит свой пэд («пластинка»). Палец сверху (датчик
+касания) — пластинка держится под пальцем: крутишь — звук едет вперёд/назад
+с той же скоростью, держишь неподвижно — тишина. Отпустил — играет дальше
+сама. Крутишь за край, не касаясь верха, — звук чуть ускоряется/замедляется
+(как диджей подгоняет пластинку).
 
 Работает внутри звукового потока (callback sounddevice / ALSA). Интерфейс
 и кнопки в поток не лезут — они кладут команды в очередь, движок забирает
@@ -33,6 +41,15 @@ except ImportError:                     # pragma: no cover
 
 FADE = int(RATE * 0.004)          # 4 мс: мягкий хвост, чтобы не щёлкало при обрыве
 REPEAT_RATES = {"1/8": 2, "1/16": 4, "1/32": 8, "1/16т": 6}     # ударов на долю
+STUTTER_DIVS = ["1/4", "1/8", "1/16", "1/32", "1/64"]           # длина повторяемого куска
+STUTTER_FADE = 48                 # ≈1 мс по краям куска: без щелчков, но «а-а-а» слышно чётко
+# Вертушка: магнитный датчик AS5600 под диском — 4096 точек на оборот.
+# Один оборот = 1.8 с звука, как оборот пластинки на 33⅓ об/мин.
+JOG_COUNTS = 4096
+SCRATCH_FRAMES_PER_COUNT = 1.8 * RATE / JOG_COUNTS
+SCRATCH_WINDOW = 0.025            # скорость диска считаем по последним 25 мс
+SCRATCH_RELEASE = 0.12            # без датчика касания: диск стоит 120 мс — «отпустил»
+NUDGE_DEPTH = 0.25                # край диска: до ±25 % скорости
 
 
 class Mode(Enum):
@@ -83,6 +100,8 @@ class Voice:
     born: int
     releasing: int = -1             # >=0 — сколько кадров хвоста осталось
     fade_in: int = FADE
+    scratch: float | None = None    # скорость от вертушки (кадров за кадр, может быть < 0), None — играет сам
+    bend: float = 0.0               # подгонка за край вертушки: +0.1 = на 10 % быстрее
 
 
 @dataclass
@@ -107,6 +126,12 @@ class Engine:
         self.repeat_rate = "1/16"
         self._repeat: dict[object, tuple[int, float, float]] = {}   # key → (пэд, сила, тон)
         self._repeat_until = 0.0
+        # две вертушки: какой пэд лежит, касание, накопленные точки, скорость
+        self.jogs = [{"pad": 0, "touch": False, "has_touch": False, "counts": 0, "hist": [], "idle": 0,
+                      "speed": 0.0, "active": False} for _ in range(2)]
+        self.jogs[1]["pad"] = 1
+        self.stutter_div = "1/8"
+        self._stut: dict | None = None             # {"buf", "filled", "pos"} пока STUTTER держат
 
     # --- команды из интерфейса (любой поток) --------------------------------
     def note_on(self, pad: int, velocity: float = 1.0, semis: float = 0.0, key=None) -> None:
@@ -122,6 +147,33 @@ class Engine:
 
     def repeat_off(self, key) -> None:
         self._cmds.put(("rep_off", 0, 0.0, 0.0, key))
+
+    def jog(self, wheel: int, counts: int) -> None:
+        """Вертушку повернули на counts точек (4096 на оборот)."""
+        self._cmds.put(("jog", wheel, float(counts), 0.0, None))
+
+    def jog_touch(self, wheel: int, touched: bool) -> None:
+        """Палец лёг на верх вертушки / убран."""
+        self._cmds.put(("jog_touch", wheel, 1.0 if touched else 0.0, 0.0, None))
+
+    def set_deck(self, wheel: int, pad: int) -> None:
+        """Положить пэд на вертушку, как пластинку."""
+        self._cmds.put(("deck", wheel, float(pad), 0.0, None))
+
+    @property
+    def scratching(self) -> bool:
+        return any(j["active"] for j in self.jogs)
+
+    def stutter_on(self) -> None:
+        """STUTTER: поймать кусок того, что звучит, и повторять его — «а-а-а-а»."""
+        self._cmds.put(("stut_on", 0, 0.0, 0.0, None))
+
+    def stutter_off(self) -> None:
+        self._cmds.put(("stut_off", 0, 0.0, 0.0, None))
+
+    @property
+    def stuttering(self) -> bool:
+        return self._stut is not None
 
     def stop_all(self) -> None:
         self._cmds.put(("panic", 0, 0.0, 0.0, None))
@@ -177,6 +229,20 @@ class Engine:
             self._repeat[key] = (pad, vel, semis)
         elif cmd == "rep_off":
             self._repeat.pop(key, None)
+        elif cmd == "jog":
+            self.jogs[pad]["counts"] += int(vel)
+        elif cmd == "jog_touch":
+            j = self.jogs[pad]
+            j["has_touch"], j["touch"] = True, bool(vel)
+            if not j["touch"]:
+                self._end_jog(j)                           # отпустил — пластинка поехала сама
+        elif cmd == "deck":
+            self._end_jog(self.jogs[pad])
+            self.jogs[pad]["pad"] = int(vel)
+        elif cmd == "stut_on":
+            self._stut = {"buf": None, "filled": 0, "pos": 0}
+        elif cmd == "stut_off":
+            self._stut = None
         elif cmd == "panic":
             self._repeat.clear()
             for v in self.voices:
@@ -193,12 +259,78 @@ class Engine:
         self._repeat_until = pos - frames
         return out
 
+    def _end_jog(self, j: dict) -> None:
+        for v in self.voices:
+            if v.pad == j["pad"]:
+                v.scratch = None
+        j["active"], j["speed"] = False, 0.0
+        j["hist"].clear()
+
+    def _jog_step(self, j: dict, frames: int) -> None:
+        """Раз в блок: вертушка → скорость голоса её пэда."""
+        counts, j["counts"] = j["counts"], 0
+        keep = max(1, int(np.ceil(SCRATCH_WINDOW * RATE / frames)))
+        j["hist"] = (j["hist"] + [counts])[-keep:]
+        j["idle"] = 0 if counts else j["idle"] + frames
+        target = sum(j["hist"]) * SCRATCH_FRAMES_PER_COUNT / (len(j["hist"]) * frames)
+        j["speed"] += (target - j["speed"]) * 0.5                  # сглаживание — без «ступенек»
+        mine = [v for v in self.voices if v.pad == j["pad"] and v.releasing < 0]
+        held = j["touch"] or (not j["has_touch"] and j["active"] and j["idle"] <= SCRATCH_RELEASE * RATE)
+        if not j["has_touch"] and counts and not j["active"]:
+            held = True                                            # без датчика касания — крутишь = держишь
+        if held:
+            if not mine:
+                if not counts and not j["touch"]:
+                    return
+                self._start_voice(j["pad"], 1.0)                   # «ставим иглу» на начало
+                mine = [v for v in self.voices if v.pad == j["pad"] and v.releasing < 0]
+                if not mine:
+                    return
+            v = max(mine, key=lambda v: v.born)
+            v.scratch = j["speed"]
+            j["active"] = True
+            return
+        if j["active"]:
+            self._end_jog(j)
+        # не держим — крутим за край: подгоняем скорость
+        bend = max(-NUDGE_DEPTH, min(NUDGE_DEPTH, j["speed"] * 0.5))
+        for v in mine:
+            v.bend = bend
+
+    def _stutter(self, out: np.ndarray) -> None:
+        """Первый кусок проходит как есть и запоминается, дальше он повторяется по кругу."""
+        st = self._stut
+        L = max(64, int(RATE * 60.0 / self.seq.bpm * 4 / int(self.stutter_div.split("/")[1])))
+        if st["buf"] is None:
+            st["buf"] = np.zeros((int(RATE * 60.0 / 40 * 2), 2), dtype=np.float32)   # до 1/2 такта при 40 BPM
+        buf, n, i = st["buf"], len(out), 0
+        while i < n:
+            if st["filled"] < L:                           # ловим кусок
+                k = min(n - i, L - st["filled"])
+                buf[st["filled"]:st["filled"] + k] = out[i:i + k]
+                st["filled"] += k
+                i += k
+                continue
+            span = min(L, st["filled"])                    # стал короче — повторяем начало куска
+            st["pos"] %= span
+            k = min(n - i, span - st["pos"])
+            seg = buf[st["pos"]:st["pos"] + k].copy()
+            # мягкие края у каждого повтора
+            idx = np.arange(st["pos"], st["pos"] + k)
+            env = np.minimum(1.0, np.minimum(idx, span - 1 - idx) / STUTTER_FADE).astype(np.float32)
+            out[i:i + k] = seg * env[:, None]
+            st["pos"] += k
+            i += k
+
     def _render_voice(self, v: Voice, out: np.ndarray, a: int, b: int, tune: float) -> bool:
         """Подмешать голос в out[a:b]. Вернуть False, если голос закончился."""
         n = b - a
-        rate = v.rate * tune
+        rate = v.rate * tune * (1 + v.bend) if v.scratch is None else v.scratch
         idx = v.pos + np.arange(n, dtype=np.float64) * rate
-        if v.loop:
+        if v.scratch is not None:                         # под пальцем: вперёд, назад, стоп у краёв
+            idx = np.clip(idx, v.loop_start, v.end - 1.001)
+            alive = n
+        elif v.loop:
             span = v.end - v.loop_start
             idx = np.where(idx >= v.loop_start, v.loop_start + (idx - v.loop_start) % span, idx)
             alive = n
@@ -227,6 +359,9 @@ class Engine:
         out[a:a + alive, 0] += chunk[:, 0] * v.gl
         out[a:a + alive, 1] += chunk[:, 1] * v.gr
         v.pos += n * rate
+        if v.scratch is not None:
+            v.pos = min(max(v.pos, v.loop_start), v.end - 1.001)
+            return not done
         if v.loop and v.pos >= v.end:
             v.pos = v.loop_start + (v.pos - v.loop_start) % (v.end - v.loop_start)
         return not done and (v.loop or alive == n)
@@ -261,6 +396,8 @@ class Engine:
             self.recorder.feed(mic)
         out = np.zeros((frames, 2), dtype=np.float32)
         tune = 2 ** (self.tune / 12)
+        for j in self.jogs:
+            self._jog_step(j, frames)
         # удары секвенсора и NOTE REPEAT — с точностью до кадра: режем блок на куски
         cuts = [(o, p, 1.0, 0.0, p, False) for o, p in self.seq.advance(frames)]
         for o in self._repeat_ticks(frames):
@@ -275,6 +412,8 @@ class Engine:
                         self._start_voice(pad, vel, semis, key)
             self.voices = [v for v in self.voices if self._render_voice(v, out, a, b, tune)]
         self._clock += frames
+        if self._stut is not None:
+            self._stutter(out)
         self._apply_filter(out)
         out *= self.master
         np.tanh(out, out=out)                     # мягкий ограничитель вместо хрипа

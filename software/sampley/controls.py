@@ -10,11 +10,14 @@ RP2040 (на макетке — Raspberry Pi Pico). Он же светит по�
   B <КНОПКА> <1|0>                                     потом кнопки (BUTTON_LEDS)
   E <0-3> <±щелчки>               Z                    «Pi выключается»
   K <0-3> <1|0>  нажатие          ?                    кто ты (ответ V …)
-  A <0|1> <0-1023>  фейдер / громкость
+  A <0|1> <0-1023>  фейдер / громкость (колёсико на боку)
+  J <0|1> <±точки>  вертушка повернулась (4096 точек на оборот)
+  JT <0|1> <1|0>    палец лёг на вертушку / убран
   S <ON|OFF>   ползунок питания
   V <версия>
 
-Крутилки: 0–2 — K1…K3 под экраном, 3 — энкодер DATA слева от экрана.
+Крутилки: 0–2 — K1…K3 под экраном, 3 — DATA (колёсико под большой палец
+на правом боку). Громкость — колёсико на левом боку.
 """
 
 from __future__ import annotations
@@ -29,6 +32,8 @@ class Kind(Enum):
     ENCODER = "E"
     ENC_PUSH = "K"
     ANALOG = "A"
+    JOG = "J"
+    JOG_TOUCH = "JT"
     POWER = "S"
     VERSION = "V"
 
@@ -49,12 +54,13 @@ class Button(Enum):
     TAP = "TAP"            # тап-темп
     BROWSE = "BROWSE"      # библиотека звуков
     KITS = "KITS"          # наборы
+    STUTTER = "STUTTER"    # держать — повтор куска того, что звучит: «а-а-а-а»
 
 
 # Порядок светодиодов кнопок в цепочке после 16 пэдов.
 BUTTON_LEDS = [Button.SHIFT, Button.PLAY, Button.STOP, Button.REC, Button.SAMPLE, Button.STEP,
                Button.CHOP, Button.MUTE, Button.MODE, Button.LEVELS, Button.BANK, Button.REPEAT,
-               Button.TAP, Button.BROWSE, Button.KITS]
+               Button.TAP, Button.BROWSE, Button.KITS, Button.STUTTER]
 
 FADER, VOLUME = 0, 1
 WHEEL = 3
@@ -64,7 +70,7 @@ WHEEL = 3
 class Event:
     kind: Kind
     index: int = 0                  # пэд / крутилка / аналоговый канал
-    value: int = 0                  # 1/0, щелчки, или 0…1023
+    value: int = 0                  # 1/0, щелчки, 0…1023, или точки вертушки
     button: Button | None = None
     velocity: float = 1.0
     text: str = ""
@@ -99,6 +105,11 @@ def parse(line: str) -> Event:
             if ch not in (FADER, VOLUME) or not 0 <= v <= 1023:
                 raise ProtocolError(f"аналог: {ch} {v}")
             return Event(Kind.ANALOG, ch, v)
+        if tag in ("J", "JT"):
+            wheel, v = int(args[0]), int(args[1])
+            if wheel not in (0, 1):
+                raise ProtocolError(f"нет вертушки {wheel}")
+            return Event(Kind.JOG if tag == "J" else Kind.JOG_TOUCH, wheel, v)
         if tag == "S":
             if args[0] not in ("ON", "OFF"):
                 raise ProtocolError(f"ползунок: {args[0]}")
@@ -124,6 +135,9 @@ KEY_BUTTONS = {
     "shift": Button.SHIFT, "space": Button.PLAY, "backspace": Button.STOP, "return": Button.REC,
     "f1": Button.SAMPLE, "f2": Button.STEP, "f3": Button.CHOP, "f4": Button.MUTE, "f5": Button.MODE,
     "f6": Button.LEVELS, "f7": Button.BANK, "tab": Button.REPEAT, "f8": Button.TAP,
-    "f9": Button.BROWSE, "f10": Button.KITS,
+    "f9": Button.BROWSE, "f10": Button.KITS, "b": Button.STUTTER,
 }
+# Вертушки: левая — o/p (назад/вперёд), 9 — палец на ней; правая — k/l, 0 — палец.
+KEY_JOGS = {"o": (0, -120), "p": (0, 120), "k": (1, -120), "l": (1, 120)}
+KEY_JOG_TOUCH = {"9": 0, "0": 1}
 KEY_FADER = ("[", "]")                        # фейдер вниз / вверх

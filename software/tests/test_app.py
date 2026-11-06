@@ -207,6 +207,35 @@ class AppTest(unittest.TestCase):
         self.assertEqual(self.off, [1])
         self.assertIn("autosave", list_kits(self.app.kits_root))
 
+    def test_jogs(self):
+        self.app.handle(Event(Kind.JOG_TOUCH, 1, 1))               # палец на правой + пэд — положить пэд
+        self.app.handle(pad(5))
+        self.assertEqual(self.app.decks[1], 5)
+        self.e.render(256)
+        self.assertEqual(self.e.jogs[1]["pad"], 5)
+        self.app.handle(Event(Kind.JOG, 1, 300))                   # крутим под пальцем — скретч
+        self.e.render(256)
+        self.assertTrue(self.e.scratching)
+        self.app.handle(Event(Kind.JOG_TOUCH, 1, 0))
+        self.app.handle(btn(Button.SHIFT))
+        self.app.handle(Event(Kind.JOG, 0, 1000))                  # SHIFT + вертушка — фильтр
+        self.assertGreater(self.e.filter, 0.5)
+
+    def test_stutter_button_and_roll(self):
+        self.app.handle(btn(Button.STUTTER))
+        self.assertTrue(self.app.stutter_active)
+        self.e.render(256)
+        self.assertTrue(self.e.stuttering)
+        self.app.handle(Event(Kind.JOG, 1, 450))                   # правая вертушка — повтор короче
+        self.assertEqual(self.e.stutter_div, "1/16")
+        self.app.handle(btn(Button.STUTTER, 0))
+        self.e.render(256)
+        self.assertFalse(self.e.stuttering)
+        self.app.handle(btn(Button.SHIFT)); self.app.handle(btn(Button.STUTTER)); self.app.handle(btn(Button.SHIFT, 0))
+        self.app.handle(btn(Button.STUTTER, 0))
+        self.e.render(256)
+        self.assertTrue(self.e.stuttering)                         # зафиксирован
+
     def test_tap_tempo(self):
         for t in (0.0, 0.5, 1.0, 1.5):
             self.t[0] = t

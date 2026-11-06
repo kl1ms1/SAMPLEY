@@ -114,6 +114,10 @@ def _header(d: ImageDraw.ImageDraw, app: App):
         tags.append(f"{eng.tune:+g}♪")
     if abs(eng.filter) >= 0.03:
         tags.append("ФНЧ" if eng.filter < 0 else "ФВЧ")
+    if eng.scratching:
+        tags.append("◐SCR")
+    if app.stutter_active:
+        tags.append(f"STUT {eng.stutter_div}")
     if app.shift:
         tags.append("SHIFT")
     d.text((x, 4), " ".join(tags), font=F_S, fill=ACCENT)
@@ -209,6 +213,8 @@ def render(app: App) -> Image.Image:
             d.text((x, 154), "SHIFT+пэд — выбор", font=F_S, fill=DIM)
         else:
             d.text((x, 140), f"Фейдер: {app.fader_mode}", font=F_S, fill=DIM)
+            dl, dr = (eng.pads[p].name for p in app.decks)
+            d.text((x, 184), _fit(d, f"◐ {dl}  ◑ {dr}", 122), font=F_S, fill=DIM)
             _bar(d, x, 155, 120, 8, eng.level, GREEN if eng.level < 0.9 else RED)
         if eng.seq.playing:
             for s in range(16):

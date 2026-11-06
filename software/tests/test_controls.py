@@ -14,11 +14,14 @@ class ProtocolTest(unittest.TestCase):
         self.assertEqual(parse("K 1 1").kind, Kind.ENC_PUSH)
         e = parse("A 0 512")
         self.assertEqual((e.kind, e.index, e.value), (Kind.ANALOG, 0, 512))
+        e = parse("J 1 -37")
+        self.assertEqual((e.kind, e.index, e.value), (Kind.JOG, 1, -37))
+        self.assertEqual(parse("JT 0 1").kind, Kind.JOG_TOUCH)
         self.assertEqual(parse("S OFF").value, 0)
         self.assertEqual(parse("V sampley-mcu 2").text, "sampley-mcu 2")
 
     def test_bad_lines(self):
-        for line in ["", "P 16 1", "E 9 1", "B FOO 1", "X", "P a b", "S MAYBE", "A 2 5", "A 0 2000"]:
+        for line in ["", "P 16 1", "E 9 1", "B FOO 1", "X", "P a b", "S MAYBE", "A 2 5", "A 0 2000", "J 2 1"]:
             with self.assertRaises(ProtocolError, msg=line):
                 parse(line)
 
@@ -34,7 +37,8 @@ class ProtocolTest(unittest.TestCase):
         import re
         fw = open(os.path.join(os.path.dirname(__file__), "..", "..", "firmware", "pico", "main.py"),
                   encoding="utf-8").read()
-        names = set(re.findall(r'\("B", "(\w+)"\)', fw))
+        inputs = re.search(r"BUTTON_INPUTS = \[(.*?)\]", fw, re.S).group(1)
+        names = {n for n in re.findall(r'"(\w+)"', inputs) if not re.fullmatch(r"(K|JT)\d", n)}
         self.assertEqual(names, {b.value for b in Button})
         order = re.search(r"BUTTON_LEDS = \[(.*?)\]", fw, re.S).group(1)
         self.assertEqual(re.findall(r'"(\w+)"', order), [b.value for b in BUTTON_LEDS])
