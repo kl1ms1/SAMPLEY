@@ -60,14 +60,32 @@ class AppTest(unittest.TestCase):
         self.press(Button.MODE)
         self.assertIs(p.mode, Mode.GATE)
 
-    def test_wheel_and_shift_knobs(self):
-        self.app.handle(Event(Kind.ENCODER, 3, 5))
-        self.assertEqual(self.e.seq.bpm, 125)
+    def test_shift_knobs_and_tempo_jog(self):
         self.app.handle(btn(Button.SHIFT))
         self.app.handle(Event(Kind.ENCODER, 1, 1))
         self.app.handle(Event(Kind.ENCODER, 0, 5))
+        self.app.handle(Event(Kind.ENCODER, 2, -10))               # SHIFT + K3 — общая громкость
+        self.app.handle(Event(Kind.JOG, 1, 500))                   # SHIFT + правая вертушка — темп
         self.assertEqual(self.e.seq.current, 1)
         self.assertEqual(self.e.seq.swing, 0.1)
+        self.assertEqual(self.e.master, 0.6)
+        self.assertEqual(self.e.seq.bpm, 125)
+
+    def test_light_modes_and_hits(self):
+        self.assertEqual(self.app.light_mode, "wave")
+        self.app.handle(btn(Button.SHIFT)); self.press(Button.MUTE); self.app.handle(btn(Button.SHIFT, 0))
+        self.assertEqual(self.app.light_mode, "sparkle")
+        self.assertFalse(self.app.mute_mode)
+        self.e.seq.start()                                         # удары секвенсора → в подсветку
+        self.e.render(256)
+        self.app.tick()
+        self.assertIn(0, [p for p, _ in self.app.take_hits()])
+        self.assertEqual(self.app.take_hits(), [])
+
+    def test_chop_stop_cancels(self):
+        self.press(Button.CHOP)
+        self.press(Button.STOP)
+        self.assertIs(self.app.screen, Screen.PLAY)
 
     def test_banks(self):
         self.press(Button.BANK)
@@ -104,7 +122,7 @@ class AppTest(unittest.TestCase):
         self.assertEqual(len(list_samples(self.app.samples_root)), 1)   # копия на карте
         self.press(Button.CHOP)
         self.assertIs(self.app.screen, Screen.CHOP)
-        self.app.handle(Event(Kind.ENC_PUSH, 3, 1))                # разложить по банку
+        self.press(Button.CHOP)                                    # CHOP ещё раз — разложить по банку
         self.assertIs(self.app.screen, Screen.PLAY)
         self.assertIs(self.e.pads[0].sample, self.e.pads[1].sample)
 
@@ -171,20 +189,20 @@ class AppTest(unittest.TestCase):
         self.app.handle(btn(Button.SHIFT)); self.app.handle(pad(7)); self.app.handle(btn(Button.SHIFT, 0))
         self.press(Button.BROWSE)
         self.assertEqual(len(self.app.browse_items), 1)
-        self.app.handle(Event(Kind.ENC_PUSH, 3, 1))
+        self.app.handle(Event(Kind.ENC_PUSH, 0, 1))
         self.assertTrue(self.e.pads[7].sample.name.startswith("rec-"))
 
     def test_kits_save_and_load(self):
         self.e.pads[0].pitch = 5
         self.press(Button.KITS)
         self.assertIs(self.app.screen, Screen.KITS)
-        self.app.handle(Event(Kind.ENC_PUSH, 3, 1))                # «Сохранить как новый»
+        self.app.handle(Event(Kind.ENC_PUSH, 0, 1))                # «Сохранить как новый»
         self.assertEqual(list_kits(self.app.kits_root), ["kit-01"])
         self.e.pads[0].pitch = 0
         self.e.seq.patterns[0].clear()
         self.press(Button.KITS)
-        self.app.handle(Event(Kind.ENCODER, 3, 2))
-        self.app.handle(Event(Kind.ENC_PUSH, 3, 1))
+        self.app.handle(Event(Kind.ENCODER, 0, 2))
+        self.app.handle(Event(Kind.ENC_PUSH, 0, 1))
         self.assertEqual(self.e.pads[0].pitch, 5)
         self.assertTrue(self.e.seq.patterns[0].grid[0][0])
         self.assertEqual(self.e.pads[3].choke, 1)

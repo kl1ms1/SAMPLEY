@@ -6,11 +6,13 @@
 #     Все 16 — через мультиплексор 74HC4067 в один АЦП, опрос ≈1000 раз/с;
 #   * 16 кнопок + 4 нажатия энкодеров — через 3 сдвиговых регистра 74HC165
 #     (всего 3 ноги на все кнопки);
-#   * 3 крутилки K1–K3 и колёсико DATA на боку — энкодеры БЕЗ щелчков, по прерываниям;
+#   * 3 крутилки K1–K3 — энкодеры БЕЗ щелчков, по прерываниям;
 #   * 2 вертушки (диски-«пластинки») — под каждой магнитный датчик угла AS5600
 #     (4096 точек на оборот, свой I2C у каждой), сверху сенсор касания;
-#   * фейдер и колёсико громкости на боку — АЦП;
-#   * подсветка: 16 пэдов + 16 кнопок одной цепочкой WS2812 / SK6812;
+#   * фейдер — АЦП;
+#   * подсветка: 16 пэдов + 16 кнопок одной цепочкой WS2812 / SK6812, с эффектами
+#     при ударе (волна, как капля по воде; искры; радуга; столб) — считаются
+#     прямо здесь, поэтому вспышка в тот же миг, что и удар, 60 кадров/с;
 #   * питание («защёлка») — только на своей плате, см. POWER_CONTROL;
 #   * говорит с Pi по UART текстом (протокол — software/sampley/controls.py).
 #
@@ -20,11 +22,11 @@
 #   GP0  UART TX → Pi GPIO15 (RX)          GP9/10   K1 A/B
 #   GP1  UART RX ← Pi GPIO14 (TX)          GP11/12  K2 A/B
 #   GP2…GP5  S0…S3 мультиплексора пэдов    GP13/14  K3 A/B
-#   GP28 (АЦП2) SIG мультиплексора пэдов   GP15/16  DATA A/B (колёсико на правом боку)
+#   GP28 (АЦП2) SIG мультиплексора пэдов   GP15/16  — запас
 #   GP6  74HC165 SH/LD (защёлкнуть)        GP17     данные подсветки
 #   GP7  74HC165 CLK                       GP18/19  I2C1 SDA/SCL — AS5600 левой вертушки
 #   GP8  74HC165 QH (данные)               GP20/21  I2C0 SDA/SCL — AS5600 правой вертушки
-#   GP26 (АЦП0) фейдер                     GP27 (АЦП1) громкость (колёсико на левом боку)
+#   GP26 (АЦП0) фейдер                     GP27 — запас
 #   GP22 ползунок питания (к GND = ВКЛ)
 # Сенсоры касания вертушек (TTP223, выход «0» при касании) — на свободные входы 74HC165.
 # Только на своей плате (голый RP2040, у Pico эти ноги заняты внутри):
@@ -55,7 +57,8 @@ DEBUG_PADS = False
 ENC_DIV = 2                    # энкодеры без щелчков: событие на каждые 2 перехода — плавно и точно
 JOG_FLIP = (1, 1)              # знак поворота левой / правой вертушки (как стоит магнит)
 
-uart = UART(0, 115200, tx=Pin(0), rx=Pin(1))
+machine.freq(200_000_000)      # 200 МГц (штатно для RP2040): запас на эффекты подсветки
+uart = UART(0, 460800, tx=Pin(0), rx=Pin(1))   # быстро: вертушки и подсветка без задержек
 
 # --- пэды: мультиплексор + АЦП ---------------------------------------------------
 for n in (2, 3, 4, 5):
@@ -87,6 +90,7 @@ def scan_pads():
                 vel = 1 + int(126 * x ** VEL_CURVE)
                 pad_state[ch] = 2
                 send("P %d 1 %d" % (ch, vel))
+                light_hit(ch, vel)                     # свет — в тот же миг, без Pi
                 if DEBUG_PADS:
                     print("pad", ch, "peak", pad_peak[ch], "vel", vel)
         elif v < PAD_OFF:
@@ -102,7 +106,7 @@ sr_data = Pin(8, Pin.IN)
 BUTTON_INPUTS = [
     "SHIFT", "PLAY", "STOP", "REC", "SAMPLE", "STEP", "CHOP", "MUTE",
     "MODE", "LEVELS", "BANK", "REPEAT", "TAP", "BROWSE", "KITS", "STUTTER",
-    "K0", "K1", "K2", "K3", "JT0", "JT1", None, None,
+    "K0", "K1", "K2", None, "JT0", "JT1", None, None,
 ]
 btn_state = [False] * len(BUTTON_INPUTS)
 btn_changed = [0] * len(BUTTON_INPUTS)
@@ -129,10 +133,10 @@ def scan_buttons(now):
 
 # --- энкодеры без щелчков ------------------------------------------------------------
 enc_pins = [(Pin(a, Pin.IN, Pin.PULL_UP), Pin(b, Pin.IN, Pin.PULL_UP))
-            for a, b in ((9, 10), (11, 12), (13, 14), (15, 16))]
+            for a, b in ((9, 10), (11, 12), (13, 14))]
 QDEC = (0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0)
 enc_prev = [(a.value() << 1) | b.value() for a, b in enc_pins]
-enc_acc = [0, 0, 0, 0]
+enc_acc = [0] * len(enc_pins)
 
 
 def _enc_irq(_pin):
@@ -149,7 +153,7 @@ for a, b in enc_pins:
 
 
 def scan_encoders():
-    for i in range(4):
+    for i in range(len(enc_pins)):
         acc = enc_acc[i]
         if abs(acc) >= ENC_DIV:
             clicks = int(acc / ENC_DIV)
@@ -200,10 +204,10 @@ def scan_jogs(now):
                 jog_acc[i] = 0
 
 
-# --- фейдер и колёсико громкости ------------------------------------------------------
-pots = [ADC(26), ADC(27)]
+# --- фейдер ----------------------------------------------------------------------------
+pots = [ADC(26)]
 pot_smooth = [p.read_u16() for p in pots]
-pot_sent = [-100, -100]
+pot_sent = [-100]
 pot_last_ms = 0
 
 
@@ -228,12 +232,102 @@ NUM_LEDS = 16 + len(BUTTON_LEDS)
 leds = neopixel.NeoPixel(Pin(17), NUM_LEDS)
 
 
+base = [(0, 0, 0)] * NUM_LEDS    # цвета от Pi (уже с учётом яркости), эффекты — поверх
+
+
 def set_led(i, hexrgb):
     if i >= NUM_LEDS:
         return
     v = int(hexrgb, 16)
     k = LED_BRIGHTNESS
-    leds[i] = (int(((v >> 16) & 255) * k), int(((v >> 8) & 255) * k), int((v & 255) * k))
+    base[i] = (int(((v >> 16) & 255) * k), int(((v >> 8) & 255) * k), int((v & 255) * k))
+
+
+# --- эффекты подсветки пэдов -------------------------------------------------------------
+# classic — пэд вспыхивает белым и гаснет; wave — от пэда бежит кольцо, как от капли
+# по воде, и зажигает все пэды по очереди; sparkle — пэд + искры вокруг; rainbow —
+# по пэдам плывёт радуга, удар — белая вспышка; column — от пэда вверх «столб», как
+# эквалайзер; off — только цвета от Pi.
+import math
+import random
+
+LIGHT_MODES = ("classic", "wave", "sparkle", "rainbow", "column", "off")
+light_mode = "wave"
+ROW_RGB = ((255, 60, 20), (255, 180, 0), (0, 160, 255), (180, 60, 255))
+ripples = []                     # [строка, столбец, время мс, (r, g, b), сила 0…1, зерно]
+leds_dirty = True
+light_last = 0
+WAVE_SPEED = 7.0                 # пэдов в секунду
+WAVE_WIDTH = 0.6
+FX_GAIN = 255 * LED_BRIGHTNESS * 1.6
+
+
+def set_light_mode(mode):
+    global light_mode, leds_dirty
+    if mode in LIGHT_MODES:
+        light_mode = mode
+        ripples.clear()
+        leds_dirty = True
+
+
+def light_hit(pad, vel):
+    if light_mode == "off" or not 0 <= pad < 16:
+        return
+    r, c = divmod(pad, 4)
+    ripples.append([r, c, time.ticks_ms(), ROW_RGB[r], max(0.25, vel / 127), random.getrandbits(16)])
+    if len(ripples) > 6:
+        ripples.pop(0)
+
+
+def _hue(h):
+    h = (h % 1.0) * 6
+    i, f = int(h), h - int(h)
+    return ((1, f, 0), (1 - f, 1, 0), (0, 1, f), (0, 1 - f, 1), (f, 0, 1), (1, 0, 1 - f))[i % 6]
+
+
+def render_lights(now):
+    global leds_dirty, light_last
+    if time.ticks_diff(now, light_last) < 16:          # ≈60 кадров/с
+        return
+    light_last = now
+    while ripples and time.ticks_diff(now, ripples[0][2]) > 1600:
+        ripples.pop(0)
+    animating = ripples or light_mode == "rainbow"
+    if not animating and not leds_dirty:
+        return
+    t = now / 1000
+    for i in range(16):
+        r, c = divmod(i, 4)
+        R, G, B = base[i]
+        if light_mode == "rainbow":
+            hr, hg, hb = _hue(t * 0.12 + (r + c) * 0.09)
+            R += hr * 40; G += hg * 40; B += hb * 40
+        for rr, cc, t0, col, vel, seed in ripples:
+            age = time.ticks_diff(now, t0) / 1000
+            d = math.sqrt((r - rr) ** 2 + (c - cc) ** 2)
+            white = math.exp(-age * 9) * vel if d == 0 else 0.0      # сам пэд — белая вспышка
+            k = 0.0
+            if light_mode == "wave":
+                ring = math.exp(-(((d - age * WAVE_SPEED) / WAVE_WIDTH) ** 2))
+                k = ring * math.exp(-age * 1.7) * vel
+            elif light_mode == "sparkle":
+                if 0 < d <= 1.5 and ((seed >> (i % 16)) & 1):
+                    k = math.exp(-age * 4) * vel * (0.6 + 0.4 * math.sin(age * 40 + i))
+                elif d == 0:
+                    k = math.exp(-age * 3) * vel
+            elif light_mode == "column":
+                if c == cc and r <= rr and (rr - r) <= age * 14:
+                    k = math.exp(-age * 2.4) * vel * (1 - (rr - r) * 0.15)
+            elif light_mode in ("classic", "rainbow"):
+                k = 0.0
+            R += (col[0] * k + 255 * white) * FX_GAIN / 255
+            G += (col[1] * k + 255 * white) * FX_GAIN / 255
+            B += (col[2] * k + 255 * white) * FX_GAIN / 255
+        leds[i] = (min(255, int(R)), min(255, int(G)), min(255, int(B)))
+    for i in range(16, NUM_LEDS):
+        leds[i] = base[i]
+    leds.write()
+    leds_dirty = False
 
 
 # --- связь с Pi ----------------------------------------------------------------------------
@@ -246,7 +340,7 @@ slider = Pin(22, Pin.IN, Pin.PULL_UP)
 
 
 def handle_uart():
-    global rx
+    global rx, leds_dirty
     n = uart.any()
     if not n:
         return
@@ -265,11 +359,15 @@ def handle_uart():
             elif parts[0] == "?":
                 send("V " + VERSION)
                 send("S " + ("ON" if slider.value() == 0 else "OFF"))
-                pot_sent[0] = pot_sent[1] = -100       # заново прислать фейдер и громкость
+                pot_sent[0] = -100                     # заново прислать фейдер
+            elif parts[0] == "LM" and len(parts) == 2:
+                set_light_mode(parts[1])
+            elif parts[0] == "H" and len(parts) == 3:
+                light_hit(int(parts[1]), int(parts[2]))
         except ValueError:
             pass
     if dirty:
-        leds.write()
+        leds_dirty = True
 
 
 # --- питание (только на своей плате) -------------------------------------------------------
@@ -322,3 +420,4 @@ while True:
     scan_jogs(now)
     scan_pots(now)
     handle_uart()
+    render_lights(now)

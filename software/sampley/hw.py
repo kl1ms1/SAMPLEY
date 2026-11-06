@@ -151,6 +151,45 @@ class Battery:
         except OSError:
             return None
 
+    def volts(self) -> float | None:
+        try:
+            if self.kind == "max17048":
+                hi, lo = self.bus.read_i2c_block_data(pins.ADDR_MAX17048, 0x02, 2)
+                return ((hi << 8) | lo) * 78.125e-6
+            hi, lo = self.bus.read_i2c_block_data(pins.ADDR_CW2015, 0x02, 2)
+            return (((hi << 8) | lo) & 0x3FFF) * 305e-6
+        except OSError:
+            return None
+
+    def temp_c(self) -> float | None:
+        """Температура самого аккумулятора по его NTC (через АЦП BQ25895). На UPS-Lite — нет."""
+        if self.kind != "max17048":
+            return None
+        from .power import ntc_celsius
+        try:
+            raw = self.bus.read_byte_data(pins.ADDR_BQ25895, 0x10) & 0x7F
+            return ntc_celsius(21.0 + raw * 0.465)
+        except OSError:
+            return None
+
+    def setup_care_charging(self, care: bool = True) -> None:
+        """Бережная зарядка: до 4.10 В током 0.3C (меньше износ и риск вздутия), АЦП — постоянно."""
+        if self.kind != "max17048":
+            return
+        from .power import CARE_CHARGE_MA, CARE_CHARGE_VOLTS, FULL_CHARGE_VOLTS, bq_ichg, bq_vreg
+        try:
+            r2 = self.bus.read_byte_data(pins.ADDR_BQ25895, 0x02)
+            self.bus.write_byte_data(pins.ADDR_BQ25895, 0x02, r2 | 0xC0)      # АЦП: старт + непрерывно
+            self.bus.write_byte_data(pins.ADDR_BQ25895, 0x06,
+                                     bq_vreg(CARE_CHARGE_VOLTS if care else FULL_CHARGE_VOLTS))
+            self.bus.write_byte_data(pins.ADDR_BQ25895, 0x04, bq_ichg(CARE_CHARGE_MA))
+        except OSError:
+            pass
+
+    def state(self):
+        from .power import BatteryState
+        return BatteryState(self.percent(), self.volts(), self.temp_c(), self.charging())
+
     def charging(self) -> bool:
         if self.kind == "cw2015":
             return bool(self._ups_pin and self._ups_pin.value)

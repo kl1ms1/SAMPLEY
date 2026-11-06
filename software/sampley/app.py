@@ -21,10 +21,12 @@ BROWSE (библиотека звуков), KITS (наборы).
 Вертушки (два диска по бокам экрана, как у диджея): на каждой лежит свой пэд.
 Палец сверху + крутишь — скретч, отпустил — играет дальше; крутишь за край —
 подгонка скорости. Палец на вертушке + пэд — положить этот пэд на вертушку.
-SHIFT + вертушка — DJ-фильтр. Пока держишь STUTTER, правая вертушка меняет
-длину повтора (1/4 … 1/64, «разгон»). В CHOP левая двигает начало среза.
-Крутилки K1–K3 — то, что подписано внизу экрана; энкодер DATA (слева от экрана) — темп / выбор.
-Фейдер — общий тон или DJ-фильтр. Ручка VOLUME — общая громкость.
+Пока держишь STUTTER, правая вертушка меняет длину повтора (1/4 … 1/64,
+«разгон»). В CHOP левая двигает начало среза, правая выбирает срез.
+Крутилки K1–K3 — то, что подписано внизу экрана; в меню K1 листает, нажатие K1 — «ОК».
+SHIFT + K3 — общая громкость. SHIFT + левая вертушка — DJ-фильтр, правая — темп.
+SHIFT + MUTE — режим подсветки пэдов (классика, волна, искры, радуга, столб).
+Фейдер — общий тон или DJ-фильтр.
 """
 
 from __future__ import annotations
@@ -44,6 +46,10 @@ from .sequencer import BANK_SIZE, BANKS, PADS, PATTERNS
 
 PREVIEW = PADS                  # служебный пэд для прослушки (срезы, библиотека)
 BANK_NAMES = "ABCD"
+# Режимы подсветки: (код для микроконтроллера, название). Эффекты считает сам
+# микроконтроллер — вспышка в момент удара, без задержки, 60 кадров/с.
+LIGHT_MODES = [("classic", "Классика"), ("wave", "Волна"), ("sparkle", "Искры"),
+               ("rainbow", "Радуга"), ("column", "Столб"), ("off", "Без эффектов")]
 
 
 class Screen(Enum):
@@ -95,6 +101,11 @@ class App:
         self.stutter_held = False
         self._jog_acc = 0                   # копим поворот правой вертушки для ступенек STUTTER
         self.jog_touch = [False, False]
+        self.light = 1                      # по умолчанию — «Волна»
+        self._jog_sel = 0                   # копим поворот вертушки: срезы, темп
+        self._prev_playing: set[int] = set()
+        self._phys_hit: dict[int, float] = {}
+        self._hits: list[tuple[int, int]] = []
         self.decks = [j["pad"] for j in engine.jogs]
         self.fader_mode = "Тон"
         self.fader = 0.5
@@ -136,6 +147,7 @@ class App:
 
     def tick(self) -> None:
         """Вызывать ~30 раз в секунду из главного цикла."""
+        now = self.clock()
         if self.toast and self.clock() > self._toast_until:
             self.toast = ""
             self.dirty = True
@@ -157,6 +169,21 @@ class App:
                 self.go(Screen.PLAY)
         if self.engine.seq.playing or self.engine.voices:
             self.dirty = True
+        # удары секвенсора и REPEAT — тоже в подсветку (свои удары пальцем МК видит сам)
+        now_playing = self.engine.playing_pads
+        for a in now_playing - self._prev_playing:
+            if a // BANK_SIZE == self.bank and now - self._phys_hit.get(a, -9) > 0.12:
+                self._hits.append((a % BANK_SIZE, 100))
+        self._prev_playing = set(now_playing)
+
+    def take_hits(self) -> list[tuple[int, int]]:
+        """Удары не от пальца — для эффектов подсветки на микроконтроллере."""
+        h, self._hits = self._hits, []
+        return h
+
+    @property
+    def light_mode(self) -> str:
+        return LIGHT_MODES[self.light][0]
 
     def kit_items(self) -> list[str]:
         return ["+ Сохранить как новый", f"Сохранить «{self.kit_name}»"] + kits.list_kits(self.kits_root)
@@ -226,6 +253,7 @@ class App:
         else:
             self.selected = pad = a
             key, semis = a, 0
+        self._phys_hit[pad] = self.clock()
         if self.repeat_held:
             eng.repeat_on(pad, vel, semis, key)
         else:
@@ -262,11 +290,27 @@ class App:
 
     def _jog(self, wheel: int, counts: int) -> None:
         eng = self.engine
-        if self.screen is Screen.CHOP and self.chopper and wheel == 0:
-            self.chopper.nudge(0, round(counts / 40))                # точная подгонка начала среза
+        if self.screen is Screen.CHOP and self.chopper:
+            ch = self.chopper
+            if wheel == 0:
+                ch.nudge(0, round(counts / 40))                      # точная подгонка начала среза
+            else:
+                self._jog_sel += counts
+                if abs(self._jog_sel) >= 300:                        # срез — каждые ≈ 25°
+                    ch.select(1 if self._jog_sel > 0 else -1)
+                    self._jog_sel = 0
+                    s, e = ch.slices[ch.cursor]
+                    self.preview(ch.sample, s / ch.sample.frames, e / ch.sample.frames)
             return
-        if self.shift:                                              # SHIFT — DJ-фильтр
-            eng.filter = round(max(-1.0, min(1.0, eng.filter + counts * 0.0006)), 3)
+        if self.shift:
+            if wheel == 0:                                          # SHIFT + левая — DJ-фильтр
+                eng.filter = round(max(-1.0, min(1.0, eng.filter + counts * 0.0006)), 3)
+            else:                                                   # SHIFT + правая — темп
+                self._jog_sel += counts
+                steps = int(self._jog_sel / 100)
+                if steps:
+                    self._jog_sel -= steps * 100
+                    eng.seq.bpm = max(40, min(300, eng.seq.bpm + steps))
             return
         if wheel == 1 and self.stutter_active:                      # «разгон» повторов
             self._jog_acc += counts
@@ -298,7 +342,10 @@ class App:
                 seq.start()
                 self.say("● Запись в паттерн" if seq.recording else "▶ Играет", 0.8)
         elif b is Button.STOP:
-            if seq.playing:
+            if self.screen is Screen.CHOP:
+                self.go(Screen.PLAY)                               # выйти из нарезки, ничего не меняя
+                self.say("Нарезка отменена", 0.8)
+            elif seq.playing:
                 seq.stop()
             else:
                 eng.stop_all()
@@ -321,13 +368,16 @@ class App:
         elif b is Button.STEP:
             self.go(Screen.PLAY if self.screen is Screen.STEP else Screen.STEP)
         elif b is Button.CHOP:
-            if self.screen is Screen.CHOP:
-                self.go(Screen.PLAY)
+            if self.screen is Screen.CHOP and self.chopper:
+                self._chop_apply()                                 # CHOP ещё раз — разложить по пэдам
             elif self.pad.sample is None:
                 self.say("Пэд пустой — сначала SAMPLE")
             else:
                 self.chopper = Chopper(self.pad.sample)
                 self.go(Screen.CHOP)
+        elif b is Button.MUTE and sh:
+            self.light = (self.light + 1) % len(LIGHT_MODES)
+            self.say(f"Подсветка: {LIGHT_MODES[self.light][1]}", 1.0)
         elif b is Button.MUTE:
             self.mute_mode = not self.mute_mode
             self.levels_mode = False
@@ -392,13 +442,6 @@ class App:
                 ch.amount(clicks)
             elif enc in (1, 2):
                 ch.nudge(enc - 1, clicks)
-            else:
-                ch.select(clicks)
-                s, e = ch.slices[ch.cursor]
-                self.preview(ch.sample, s / ch.sample.frames, e / ch.sample.frames)
-            return
-        if enc == 3:                                                # DATA — темп
-            seq.bpm = round(max(40, min(300, seq.bpm + clicks * (10 if self.shift else 1))))
             return
         if self.shift:
             if enc == 0:
@@ -409,8 +452,8 @@ class App:
                     seq.queued = target                             # сменится с начала такта
                 else:
                     seq.current, seq.queued = target, None
-            elif enc == 2:
-                p.choke = max(0, min(4, p.choke + clicks))
+            elif enc == 2:                                          # SHIFT + K3 — общая громкость
+                eng.master = round(max(0.0, min(1.0, eng.master + clicks * 0.02)), 2)
             return
         if enc == 0:
             p.volume = round(max(0.0, min(1.0, p.volume + clicks * 0.02)), 2)
@@ -422,11 +465,11 @@ class App:
     def _push(self, enc: int) -> None:
         p, sc = self.pad, self.screen
         if sc is Screen.KITS:
-            if enc in (0, 3):
+            if enc == 0:
                 self._kit_action()
             return
         if sc is Screen.BROWSE:
-            if enc in (0, 3) and self.browse_items:
+            if enc == 0 and self.browse_items:
                 self._browse_load()
             return
         if sc is Screen.SAMPLE:
@@ -435,15 +478,8 @@ class App:
             return
         if sc is Screen.CHOP and self.chopper:
             ch = self.chopper
-            if enc == 3:
-                first = self.bank * BANK_SIZE
-                n = ch.apply(self.engine, first)
-                self.selected = first
-                self.go(Screen.PLAY)
-                self.say(f"{n} срезов → пэды {BANK_NAMES[self.bank]}1–{BANK_NAMES[self.bank]}{n}", 2.0)
-            else:
-                s, e = ch.slices[ch.cursor]
-                self.preview(ch.sample, s / ch.sample.frames, e / ch.sample.frames)
+            s, e = ch.slices[ch.cursor]
+            self.preview(ch.sample, s / ch.sample.frames, e / ch.sample.frames)
             return
         if self.shift:
             if enc == 1:
@@ -457,6 +493,13 @@ class App:
         elif enc == 2:
             p.reverse = not p.reverse
             self.say("Задом наперёд" if p.reverse else "Обычно", 0.8)
+
+    def _chop_apply(self) -> None:
+        first = self.bank * BANK_SIZE
+        n = self.chopper.apply(self.engine, first)
+        self.selected = first
+        self.go(Screen.PLAY)
+        self.say(f"{n} срезов → пэды {BANK_NAMES[self.bank]}1–{BANK_NAMES[self.bank]}{n}", 2.0)
 
     def _analog(self, ch: int, v: float) -> None:
         v = max(0.0, min(1.0, v))
@@ -533,9 +576,9 @@ class App:
         sc = self.screen
         empty = ("", "")
         if sc is Screen.SAMPLE:
-            return [("Порог", f"{r.threshold:.3f}"), empty, empty, ("Старт", "сразу")]
+            return [("Порог", f"{r.threshold:.3f}"), empty, empty, ("K1 нажать", "сразу")]
         if sc in (Screen.KITS, Screen.BROWSE):
-            return [("Выбор", "↕"), empty, empty, ("Выбор", "OK")]
+            return [("Выбор", "↕ · нажать"), empty, empty, empty]
         if sc is Screen.CHOP and self.chopper:
             ch = self.chopper
             amt = f"{round(ch.sensitivity * 100)}%" if ch.mode.name == "AUTO" else f"{ch.count} шт"
@@ -544,7 +587,7 @@ class App:
         if self.shift:
             pat = f"{seq.current + 1}" + (f"→{seq.queued + 1}" if seq.queued is not None else "")
             return [("Свинг", f"{round(seq.swing * 100)}%"), ("Паттерн", pat),
-                    ("Глуш", f"{p.choke or '—'}"), ("Темп", f"{seq.bpm:g}")]
+                    ("Громк", f"{round(eng.master * 100)}%"), ("Темп", f"{seq.bpm:g}")]
         pan = "C" if abs(p.pan) < 0.01 else (f"L{round(-p.pan * 100)}" if p.pan < 0 else f"R{round(p.pan * 100)}")
         return [("Громк", f"{round(p.volume * 100)}%"), ("Тон", f"{p.pitch:+g}"),
                 ("Пан", pan), ("Темп", f"{seq.bpm:g}")]

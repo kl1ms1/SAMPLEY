@@ -82,7 +82,7 @@ def demo(out_dir: str) -> int:
     app.handle(Event(Kind.BUTTON, value=1, button=Button.CHOP))
     app.chopper.cursor = 2
     shots["chop"] = ui.render(app)
-    app.handle(Event(Kind.ENC_PUSH, 3, 1))
+    app.handle(Event(Kind.ENC_PUSH, 0, 1))
     app.toast = ""
     shots["bank_b"] = ui.render(app)
     app.bank = 0
@@ -117,7 +117,7 @@ def sim() -> int:
     win = pygame.display.set_mode((ui.W * scale, ui.H * scale + 98))
     pygame.display.set_caption("SAMPLEY — симуляция")
     hint = pygame.font.SysFont(None, 20)
-    lines = ["Пэды 1234/qwer/asdf/zxcv · K1 5-6, K2 t-y, K3 g-h (нажать 7 u j) · DATA ←→ (нажать ↓, колесо мыши)",
+    lines = ["Пэды 1234/qwer/asdf/zxcv · K1 5-6 (или колесо мыши), K2 t-y, K3 g-h · нажать 7 u j",
              "Shift SHIFT · Пробел PLAY · Backspace STOP · Enter REC · Tab REPEAT · B STUTTER · [ ] фейдер",
              "Вертушки: левая o p (палец — держи 9) · правая k l (палец — 0)",
              "F1 SAMPLE F2 STEP F3 CHOP F4 MUTE F5 MODE F6 LEVELS F7 BANK F8 TAP F9 BROWSE F10 KITS · Esc выход"]
@@ -156,9 +156,9 @@ def sim() -> int:
                         if k in (dec, inc):
                             app.handle(Event(Kind.ENCODER, i, -1 if k == dec else 1))
             elif e.type == pygame.MOUSEBUTTONDOWN and e.button == 2:
-                app.handle(Event(Kind.ENC_PUSH, 3, 1))
+                app.handle(Event(Kind.ENC_PUSH, 0, 1))
             elif e.type == pygame.MOUSEWHEEL:
-                app.handle(Event(Kind.ENCODER, 3, e.y))
+                app.handle(Event(Kind.ENCODER, 0, e.y))
         app.tick()
         img = ui.render(app)
         surf = pygame.image.fromstring(img.tobytes(), img.size, "RGB")
@@ -193,10 +193,13 @@ def device() -> int:
     display = optional("экран", lambda: hw.ST7789(profile.spi_hz)) or hw.PNGDisplay("/tmp/sampley.png")
     mcu = optional("МК", hw.McuLink)
     battery = optional("батарея", hw.Battery)
+    if battery:
+        battery.setup_care_charging(True)
     audio = optional("звук", lambda: hw.Audio(eng, profile.block))
 
     frame = 1.0 / profile.ui_fps
     last_batt = 0.0
+    last_light = None
     try:
         while True:
             t0 = time.monotonic()
@@ -204,17 +207,27 @@ def device() -> int:
                 while not mcu.events.empty():
                     app.handle(mcu.events.get())
             if battery and t0 - last_batt > 5:
-                app.battery, app.charging = battery.percent(), battery.charging()
+                from .power import Action, check
+                st = battery.state()
+                app.battery, app.charging = st.percent, st.charging
                 last_batt = t0
-                if app.battery is not None and app.battery <= 3 and not app.charging:
-                    app.say("Батарея села")
+                act = check(st)
+                if act in (Action.SHUTDOWN_EMPTY, Action.SHUTDOWN_HOT):
+                    app.say(act.value, 5)
                     app.shutdown()
+                elif act is not Action.OK:
+                    app.say(f"Аккумулятор: {act.value}", 3)
             app.tick()
             if app.dirty:
                 display.show(ui.render(app))
                 app.dirty = False
             if mcu:
                 mcu.set_leds(app.led_colors())
+                if app.light_mode != last_light:
+                    mcu.send(f"LM {app.light_mode}\n")
+                    last_light = app.light_mode
+                for pad, vel in app.take_hits():                  # удары секвенсора — в эффекты подсветки
+                    mcu.send(f"H {pad} {vel}\n")
             time.sleep(max(0.0, frame - (time.monotonic() - t0)))
     except KeyboardInterrupt:
         pass

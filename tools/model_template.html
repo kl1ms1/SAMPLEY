@@ -66,8 +66,8 @@ kbd{font-family:var(--f-mono);font-size:12px;border:1px solid var(--line);border
 <div class="wrap">
   <header>
     <h1>SAMPLEY <em>v1</em></h1>
-    <p>Карманный сэмплер на Raspberry Pi Zero 2 W. Записал звук на улице, порезал по пэдам, играешь бит и скретчишь на двух вертушках, как диджей. Пэды мягкие и чувствуют силу удара, всё крутится гладко, без щелчков.</p>
-    <div class="dims"><span>120 × 149 мм</span><span>высота 22 → 31 мм</span><span>≈ 340 г</span><span>16 пэдов 18.5 мм</span><span>2 вертушки Ø33</span><span>экран 2.0″</span><span>≈ 4000 мА·ч · 7–8 ч</span></div>
+    <p>Карманный сэмплер на Raspberry Pi Zero 2 W. Записал звук на улице, порезал по пэдам, играешь бит и скретчишь на двух вертушках, как диджей. Пэды мягкие, чувствуют силу удара и красиво светятся — нажми «Свет», чтобы сменить эффект.</p>
+    <div class="dims"><span>116 × 143 мм</span><span>толщина 16 → 25 мм</span><span>≈ 290 г</span><span>16 пэдов 17.5 мм</span><span>2 вертушки Ø30</span><span>экран 2.0″</span><span>≈ 3000 мА·ч · 5–6 ч</span></div>
   </header>
 
   <div class="stage" id="stage">
@@ -83,6 +83,7 @@ kbd{font-family:var(--f-mono);font-size:12px;border:1px solid var(--line);border
       <button type="button" data-act="side" aria-pressed="false">Сбоку</button>
       <button type="button" data-act="back" aria-pressed="false">Разъёмы</button>
       <button type="button" data-act="beat" aria-pressed="false">▶ Бит</button>
+      <button type="button" data-act="light" aria-pressed="false" id="lightBtn">Свет: Волна</button>
       <button type="button" data-act="labels" aria-pressed="false">Подписи</button>
     </div>
   </div>
@@ -115,40 +116,39 @@ kbd{font-family:var(--f-mono);font-size:12px;border:1px solid var(--line);border
 var SCREENS = __SCREENS__;
 
 // ----- данные -----------------------------------------------------------------
-// Оси: x — вправо, y — вверх, z — к себе. Верх передней части y = 0, низ y = −22. Корпус x ±60, z −74…75.
-var W=120, D=149, Z0=-74, Z1=75;
-var PAD_X=[-30,-10,10,30], PAD_Z=[0,20,40,60], PAD=18.5;
+// Оси: x — вправо, y — вверх, z — к себе. Верх передней части y = 0, низ y = −16. Корпус x ±58, z −69…74.
+var W=116, D=143, Z0=-69, Z1=74, YB=-16;
+var PAD_X=[-28.5,-9.5,9.5,28.5], PAD_Z=[0,19,38,57], PAD=17.5;
 var ROWC=["#ff3c14","#ffb400","#00a0ff","#b43cff"];
 var BTN=[ // id, label, x, z, w, h, color, shift, desc
-  ["SHIFT","SHIFT",-50,-29,11,7,"#d8d6d0","держать — вторая функция","Вторая функция у всех кнопок и крутилок"],
-  ["TAP","TAP",50,-29,11,7,"#d8d6d0","фейдер: тон ↔ фильтр","Тап-темп"],
-  ["SAMPLE","SAMPLE",-32.5,-18.5,11,6,"#d8d6d0","—","Запись: ждёт звук или тапни пэд — пишет на него"],
-  ["CHOP","CHOP",-19.5,-18.5,11,6,"#d8d6d0","—","Нарезать звук по пэдам (авто по ударам / ровно)"],
-  ["STEP","STEP",-6.5,-18.5,11,6,"#d8d6d0","—","Шаговый секвенсор: 16 пэдов = 16 шагов"],
-  ["MUTE","MUTE",6.5,-18.5,11,6,"#d8d6d0","—","Пэды глушат свои звуки"],
-  ["LEVELS","16 LEV",19.5,-18.5,11,6,"#d8d6d0","—","Один звук на 16 высотах"],
-  ["MODE","MODE",32.5,-18.5,11,6,"#d8d6d0","группа глушения","Удар / держать / луп / луп вкл-выкл"],
-  ["BANK","BANK",-50,52,11,7,"#d8d6d0","банк назад","Банк A → B → C → D (64 звука)"],
-  ["REPEAT","REPEAT",-50,63,11,7,"#d8d6d0","шаг 1/8…1/32","Держать + пэд — дробь в темп (NOTE REPEAT)"],
-  ["BROWSE","BROWSE",50,-4,11,7,"#d8d6d0","—","Все записи и WAV с карты"],
-  ["KITS","KITS",50,7,11,7,"#d8d6d0","—","Сохранить / загрузить набор"],
-  ["STUTTER","STUTTER",50,23,11,12,"#1fb6e8","зафиксировать","Держать — повтор куска звука «а-а-а-а»; правый шар вверх — повторы чаще"],
-  ["REC","REC",50,42,11,8,"#e23b2e","—","Запись ударов в паттерн"],
-  ["STOP","STOP",50,53,11,8,"#d8d6d0","—","Стоп; ещё раз — заглушить всё"],
-  ["PLAY","PLAY",50,64,11,8,"#2fb85a","старт с начала","Старт"]
+  ["SHIFT","SHIFT",-48,-27,10,6.5,"#d8d6d0","держать — вторая функция","Вторая функция у всех кнопок и крутилок"],
+  ["TAP","TAP",48,-27,10,6.5,"#d8d6d0","фейдер: тон ↔ фильтр","Тап-темп"],
+  ["SAMPLE","SAMPLE",-31,-17,10.5,5.5,"#d8d6d0","—","Запись: ждёт звук или тапни пэд — пишет на него"],
+  ["CHOP","CHOP",-18.6,-17,10.5,5.5,"#d8d6d0","—","Нарезать звук по пэдам; ещё раз — разложить по пэдам"],
+  ["STEP","STEP",-6.2,-17,10.5,5.5,"#d8d6d0","—","Шаговый секвенсор: 16 пэдов = 16 шагов"],
+  ["MUTE","MUTE",6.2,-17,10.5,5.5,"#d8d6d0","режим подсветки","Пэды глушат свои звуки"],
+  ["LEVELS","16 LEV",18.6,-17,10.5,5.5,"#d8d6d0","—","Один звук на 16 высотах"],
+  ["MODE","MODE",31,-17,10.5,5.5,"#d8d6d0","группа глушения","Удар / держать / луп / луп вкл-выкл"],
+  ["BANK","BANK",-48,49,10,6.5,"#d8d6d0","банк назад","Банк A → B → C → D (64 звука)"],
+  ["REPEAT","REPEAT",-48,59,10,6.5,"#d8d6d0","шаг 1/8…1/32","Держать + пэд — дробь в темп (NOTE REPEAT)"],
+  ["BROWSE","BROWSE",48,-4,10,6.5,"#d8d6d0","—","Все записи и WAV с карты"],
+  ["KITS","KITS",48,6,10,6.5,"#d8d6d0","—","Сохранить / загрузить набор"],
+  ["STUTTER","STUTTER",48,20.5,10,11,"#1fb6e8","зафиксировать","Держать — повтор куска звука «а-а-а-а»; правая вертушка — повторы чаще"],
+  ["REC","REC",48,37,10,7.5,"#e23b2e","—","Запись ударов в паттерн"],
+  ["STOP","STOP",48,47,10,7.5,"#d8d6d0","—","Стоп; ещё раз — заглушить всё; в CHOP — выйти"],
+  ["PLAY","PLAY",48,57,10,7.5,"#2fb85a","старт с начала","Старт"]
 ];
-var KNOBS=[["K1",-20,-29,"Громкость пэда","Свинг"],["K2",0,-29,"Тон ±24","Паттерн 1–8"],["K3",20,-29,"Панорама","Группа глушения"]];
-var BALL_X=41, BALL_R=12.5;
+var KNOBS=[["K1",-19,-27,"Громкость пэда; в меню — листать, нажать — «ОК»","Свинг"],["K2",0,-27,"Тон ±24","Паттерн 1–8"],["K3",19,-27,"Панорама","Общая громкость"]];
 
 var PARTS=[
-  {id:"shell",name:"Корпус",color:"#cfcdc8",ex:84,short:"120 × 149 мм, спереди 22 мм, сзади 31 мм",items:["Часть с экраном и шарами поднята под углом 14° — экран смотрит на тебя","В высокой задней части — камеры динамиков: объём = бас и чистый звук","Резиновые ножки — не ездит по столу","Крышка снизу на 4 винтах, под ней аккумулятор"]},
+  {id:"shell",name:"Корпус",color:"#cfcdc8",ex:70,short:"116 × 143 мм, спереди 16 мм, сзади 25 мм",items:["Часть с экраном и вертушками поднята под углом 14° — экран смотрит на тебя","Тонкий: Pi стоит под наклонной частью, где корпус выше; под пэдами — только плата и плоский аккумулятор","В высокой задней части — камеры динамиков: объём = бас и чистый звук","Резиновые ножки — не ездит по столу","Крышка снизу на 4 винтах, под ней аккумулятор"]},
   {id:"jogs",name:"Две вертушки",color:"#ff6a1a",ex:104,short:"Диски Ø34 мм, как пластинки у диджея",items:["Палец сверху + крутишь — скретч: звук едет вперёд и назад, держишь — стоит","Отпустил — пластинка играет дальше сама","Крутишь за край, не касаясь верха, — подгоняешь скорость, как диджей","Палец на вертушке + пэд — положить этот пэд на неё; SHIFT + вертушка — фильтр","Под диском — подшипник и магнитный датчик AS5600: 4096 точек на оборот, ничего не трётся — крутится долго и мягко, без щелчков","Верх диска — металлическая пластина-сенсор касания"]},
   {id:"mat",name:"Силиконовый коврик: пэды + кнопки",color:"#34373c",ex:32,short:"Один литой коврик, мягкость 30–40 Shore A",items:["Пэды 18.5 мм, ход 3 мм — мягкие, «пружинят», как на MPC","Кнопки — из того же коврика, тихие, без щелчка","Юбка пэда полупрозрачная — светится от RGB снизу","Под каждым пэдом — токопроводящая таблетка: чем сильнее жмёшь, тем громче удар"]},
   {id:"pcb",name:"Главная плата",color:"#1c4f3a",ex:8,short:"RP2040, звук, питание, «гребёнки» под пэдами",items:["Контакты пэдов и кнопок — медные гребёнки прямо на плате (золочёные)","Под каждым пэдом и кнопкой — RGB-светодиод, светит вверх сквозь плату","RP2040: сила удара пэдов, кнопки, энкодеры, шары, фейдер","Звук: кодек WM8960 + умный усилитель MAX98390 на каждый динамик","Питание как UPS: BQ25895 + TPS61088. Всё мелкое ставит завод"]},
-  {id:"knobs",name:"Крутилки, колёсики, фейдер",color:"#2a2b2e",ex:104,short:"K1–K3 сверху, DATA и VOL — колёсики на боках",items:["K1–K3 — энкодеры без щелчков, тяжёлые алюминиевые ручки, демпферная смазка — крутятся «масляно»","DATA — колёсико под большой палец на правом боку: темп, выбор, срезы; нажать — «ОК»","VOL — колёсико громкости на левом боку","Фейдер 45 мм с демпферной смазкой — идёт плавно, без рывков"]},
+  {id:"knobs",name:"Крутилки и фейдер",color:"#2a2b2e",ex:90,short:"K1–K3 и фейдер, ничего по бокам",items:["K1–K3 — низкие энкодеры без щелчков, тяжёлые алюминиевые ручки, демпферная смазка — крутятся «масляно»","В меню K1 листает, нажатие K1 — «ОК»; SHIFT + K3 — общая громкость","Темп — TAP или SHIFT + правая вертушка","Фейдер 45 мм с демпферной смазкой — идёт плавно, без рывков"]},
   {id:"screen",name:"Экран 2.0″ IPS",color:"#0e0f10",ex:84,short:"320 × 240, без тачскрина",items:["Яркий, читается на улице","Всё управление — крутилками, шарами и кнопками","На модели — настоящий интерфейс SAMPLEY"]},
   {id:"pi",name:"Raspberry Pi Zero 2 W",color:"#2e7d4a",ex:-6,short:"Под главной платой, «бутербродом»",items:["Вставляется в гнездо снизу платы, как в KODY","4 ядра: до 24 звуков сразу, задержка ≈ 12 мс","microSD вынимается через прорезь сзади"]},
-  {id:"battery",name:"Аккумулятор ≈ 4000 мА·ч",color:"#7b8fa6",ex:-18,short:"Плоский Li-Po 6 × 55 × 90 мм, 7–8 часов",items:["Встроенный «UPS»: работает во время зарядки","Выдернул провод — Pi даже не моргнула","Защита DW01A, проценты на экране","Выключенный не тратит заряд"]},
+  {id:"battery",name:"Аккумулятор ≈ 3000 мА·ч + защита",color:"#7b8fa6",ex:-16,short:"Плоский Li-Po 5 × 55 × 85 мм, 5–6 часов, 4 слоя защиты",items:["Переразряд: SAMPLEY сам выключается при 3 % / 3.4 В; плата DW01A отрубает при 2.4 В — без софта","Вздутие: бережная зарядка до 4.1 В током 0.3C, не заряжает в холод и жару (датчик NTC на аккумуляторе)","Перегрев > 60 °C — сохраняется и выключается","Над аккумулятором зазор 1 мм и мягкая прокладка — ничем не зажат, ничего не давит","Предохранитель 2 А и защитная плата в самом аккумуляторе","Работает во время зарядки, выдернул провод — Pi не моргнула"]},
   {id:"speakers",name:"Динамики и микрофоны",color:"#8a8f96",ex:-18,short:"Hi-Fi микродинамики в камерах + 2 студийных MEMS-микрофона",items:["2 динамика 20 × 30 мм с неодимом, каждый в закрытой камере ≈6 см³ — звук через щели по бокам","Умный усилитель MAX98390: защищает динамик и вытягивает бас, звучит как колонка побольше","2 микрофона Infineon IM73A135: шум 73 дБ — тихие звуки чисто, громкие (до 135 дБ) без хрипа","Микрофоны в резиновых башмачках по углам — стерео, удары по пэдам не стучат в запись","Вставил наушники — динамики молчат"]},
   {id:"bottom",name:"Нижняя крышка",color:"#bdbab4",ex:-34,short:"4 винта, ножки",items:["Отверстие под гребёнку GPIO сбоку — для своих экспериментов"]}
 ];
@@ -177,7 +177,7 @@ PARTS.forEach(function(p){ var b=document.createElement("button"); b.className="
 (function(){ var tb=document.getElementById("btnTable");
   BTN.forEach(function(b){ var tr=document.createElement("tr"); [b[1],b[8],b[7]].forEach(function(t){ var td=document.createElement("td"); td.textContent=t; tr.appendChild(td); }); tb.appendChild(tr); });
   KNOBS.forEach(function(k){ var tr=document.createElement("tr"); [k[0],k[3],k[4]].forEach(function(t){ var td=document.createElement("td"); td.textContent=t; tr.appendChild(td); }); tb.appendChild(tr); });
-  [["Вертушки","Палец сверху + крутишь — скретч; за край — подгонка скорости; палец + пэд — положить пэд","Фильтр"],["DATA (бок)","Колёсико справа: темп; в CHOP — срезы; нажать — «ОК»","Темп по 10"],["Фейдер","Тон всех пэдов ±1 октава","(режим фильтра)"],["VOL (бок)","Колёсико слева: общая громкость","—"],["Пэд","Сыграть (сила удара!) и выбрать","Только выбрать"]]
+  [["Вертушки","Палец сверху + крутишь — скретч; за край — подгонка скорости; палец + пэд — положить пэд","Левая — фильтр, правая — темп"],["MUTE + SHIFT","—","Подсветка: классика, волна, искры, радуга, столб"],["Фейдер","Тон всех пэдов ±1 октава","(режим фильтра)"],["Пэд","Сыграть (сила удара!) и выбрать","Только выбрать"]]
    .forEach(function(r){ var tr=document.createElement("tr"); r.forEach(function(t){ var td=document.createElement("td"); td.textContent=t; tr.appendChild(td); }); tb.appendChild(tr); });
 })();
 
@@ -211,27 +211,27 @@ function decal(g,w,d,tex,x,y,z){ var m=new THREE.Mesh(new THREE.PlaneGeometry(w,
 
 // ----- корпус: передняя часть плоская, часть с экраном и вертушками поднята ------
 var PX=6; // пикселей на мм
-var HZ=-36, TILT=14*Math.PI/180, BAND=38;   // линия сгиба, угол подъёма, длина наклонной части по скату
-var JOG_X=41, JOG_R=16.5, JOG_ZL=-19;      // вертушки: ±41 мм от центра, Ø33
+var HZ=-33, TILT=14*Math.PI/180, BAND=36;   // линия сгиба, угол подъёма, длина наклонной части по скату
+var JOG_X=38, JOG_R=15, JOG_ZL=-18;        // вертушки: ±38 мм от центра, Ø30
 // группа «наклонной части»: локальная z = z − HZ (назад — отрицательная), поднята на TILT
 function hinge(g){ var h=new THREE.Group(); h.position.set(0,0,HZ); h.rotation.x=TILT; g.add(h); return h; }
 var BACK_Y=-2.8*Math.cos(TILT)+BAND*Math.sin(TILT);           // высота задней стенки под наклонной панелью
 function drawTop(c){ var w=W*PX, h=D*PX; function X(x){return (x+W/2)*PX;} function Z(z){return (z-Z0)*PX;}
   c.fillStyle="#d4d2cc"; c.fillRect(0,0,w,h);
-  c.fillStyle="#26272a"; rr(c,X(-40.5),Z(-10.5),81*PX,81*PX,3*PX); c.fill();        // колодец пэдов
-  c.fillStyle="#1d1e21"; rr(c,X(-51.5),Z(-6),3*PX,46*PX,1.5*PX); c.fill();           // прорезь фейдера
-  c.strokeStyle="#7b7a76"; c.lineWidth=2; for(var i=0;i<=10;i++){ var y=Z(-4+i*4.2), L=(i%5===0)?3.4:2; c.beginPath(); c.moveTo(X(-55.6),y); c.lineTo(X(-55.6+L),y); c.stroke(); }
-  c.fillStyle="#55544f"; c.font="600 "+(2.1*PX)+"px 'JetBrains Mono',monospace"; c.textAlign="center";
-  c.fillText("+12",X(-44.6),Z(-3.2)); c.fillText("0",X(-44.6),Z(17.7)); c.fillText("−12",X(-44.6),Z(38.6));
-  c.save(); c.translate(X(-57.6),Z(17)); c.rotate(-Math.PI/2); c.fillText("ФЕЙДЕР",0,0); c.restore();
-  c.fillStyle="#1d1e21"; c.font="700 "+(4*PX)+"px Unbounded, 'Golos Text', sans-serif"; c.fillText("SAMPLEY",X(0),Z(74));
+  c.fillStyle="#26272a"; rr(c,X(-38),Z(-9.5),76*PX,76*PX,3*PX); c.fill();             // колодец пэдов
+  c.fillStyle="#1d1e21"; rr(c,X(-49.5),Z(-5),3*PX,42*PX,1.5*PX); c.fill();             // прорезь фейдера
+  c.strokeStyle="#7b7a76"; c.lineWidth=2; for(var i=0;i<=10;i++){ var y=Z(-3+i*3.8), L=(i%5===0)?3:1.8; c.beginPath(); c.moveTo(X(-53.4),y); c.lineTo(X(-53.4+L),y); c.stroke(); }
+  c.fillStyle="#55544f"; c.font="600 "+(2*PX)+"px 'JetBrains Mono',monospace"; c.textAlign="center";
+  c.fillText("+12",X(-42.6),Z(-2.2)); c.fillText("0",X(-42.6),Z(16.7)); c.fillText("−12",X(-42.6),Z(35.6));
+  c.save(); c.translate(X(-55.4),Z(16)); c.rotate(-Math.PI/2); c.fillText("ФЕЙДЕР",0,0); c.restore();
+  c.fillStyle="#1d1e21"; c.font="700 "+(3.6*PX)+"px Unbounded, 'Golos Text', sans-serif"; c.fillText("SAMPLEY",X(0),Z(70.6));
 }
 // наклонная панель: локально x ±60, z_l 0 (сгиб) … −38 (зад)
 function drawBand(c){ var w=W*PX, h=BAND*PX; function X(x){return (x+W/2)*PX;} function Z(zl){return (zl+BAND)*PX;}
   c.fillStyle="#1d1e21"; c.fillRect(0,0,w,h);
-  c.fillStyle="#000"; [-1,1].forEach(function(sd){ for(var m=0;m<4;m++){ c.beginPath(); c.arc(X(sd*56.5+(m%2)*1.5-.75),Z(-34.5-Math.floor(m/2)*1.5),0.45*PX,0,7); c.fill(); } });
+  c.fillStyle="#000"; [-1,1].forEach(function(sd){ for(var m=0;m<4;m++){ c.beginPath(); c.arc(X(sd*54+(m%2)*1.5-.75),Z(-32.5-Math.floor(m/2)*1.5),0.45*PX,0,7); c.fill(); } });
   c.fillStyle="#7d7c78"; c.font="600 "+(1.7*PX)+"px 'JetBrains Mono',monospace"; c.textAlign="center";
-  c.fillText("MIC L",X(-56.5),Z(-30.4)); c.fillText("MIC R",X(56.5),Z(-30.4));
+  c.fillText("MIC L",X(-54),Z(-28.6)); c.fillText("MIC R",X(54),Z(-28.6));
 }
 var topTex=canvasTex(W*PX,D*PX,drawTop);
 topTex.repeat.set(1/W,1/D); topTex.offset.set(.5,.5); // UV крышки = координаты формы (мм)
@@ -242,8 +242,8 @@ var bodyMat=mat("#cfcdc8",{roughness:.55});
 function circ(r,cx,cy){ var p=new THREE.Path(); p.absarc(cx,cy,r,0,Math.PI*2,true); return p; }
 (function(g){
   var ZC=(Z0+Z1)/2, topShape=rrShape(W,Z1-HZ,2,0,-((Z1+HZ)/2-ZC));
-  topShape.holes.push(rrShape(81,81,3,0,-(30-ZC)));
-  topShape.holes.push(rrShape(3,46,1.4,-50,-(17-ZC)));
+  topShape.holes.push(rrShape(76,76,3,0,-(28.5-ZC)));
+  topShape.holes.push(rrShape(3,42,1.4,-48,-(16-ZC)));
   BTN.forEach(function(b){ topShape.holes.push(rrShape(b[4]+.8,b[5]+.8,2,b[2],-(b[3]-ZC))); });
   var geo=new THREE.ExtrudeGeometry(topShape,{depth:2,bevelEnabled:true,bevelThickness:.8,bevelSize:.8,bevelSegments:3,curveSegments:10});
   geo.rotateX(-Math.PI/2);
@@ -251,7 +251,7 @@ function circ(r,cx,cy){ var p=new THREE.Path(); p.absarc(cx,cy,r,0,Math.PI*2,tru
   m.position.set(0,-2.8,ZC); g.add(m);
   // наклонная панель: окно экрана и два круглых окна под вертушки
   var hg=hinge(g), bandShape=rrShape(W,BAND,2);
-  bandShape.holes.push(rrShape(46.6,35.6,1.8,0,0));
+  bandShape.holes.push(rrShape(44.6,34.2,1.8,0,-(JOG_ZL+BAND/2)));
   [-1,1].forEach(function(sd){ bandShape.holes.push(circ(JOG_R+.8,sd*JOG_X,-(JOG_ZL+BAND/2))); });
   var bg=new THREE.ExtrudeGeometry(bandShape,{depth:2,bevelEnabled:true,bevelThickness:.8,bevelSize:.8,bevelSegments:3,curveSegments:24});
   bg.rotateX(-Math.PI/2);
@@ -259,38 +259,37 @@ function circ(r,cx,cy){ var p=new THREE.Path(); p.absarc(cx,cy,r,0,Math.PI*2,tru
   bm.position.set(0,-2.8,-BAND/2); hg.add(bm);
   // боковые стенки — клин: спереди 10 мм, сзади поднимаются под наклонную панель
   var zb=HZ-BAND*Math.cos(TILT)-2.8*Math.sin(TILT);
-  var prof=new THREE.Shape(); prof.moveTo(Z1,-12.6); prof.lineTo(Z1,-2.8); prof.lineTo(HZ,-2.8); prof.lineTo(zb,BACK_Y); prof.lineTo(Z0,BACK_Y); prof.lineTo(Z0,-12.6); prof.closePath();
+  var prof=new THREE.Shape(); prof.moveTo(Z1,-10.6); prof.lineTo(Z1,-2.8); prof.lineTo(HZ,-2.8); prof.lineTo(zb,BACK_Y); prof.lineTo(Z0,BACK_Y); prof.lineTo(Z0,-10.6); prof.closePath();
   var slot=mat("#141416",{roughness:.6});
   [1,-1].forEach(function(side){ var wg=new THREE.ExtrudeGeometry(prof,{depth:1.6,bevelEnabled:false}); wg.rotateY(-Math.PI/2);
     var wm=new THREE.Mesh(wg,bodyMat); wm.position.x=side>0?W/2:-W/2+1.6; g.add(wm);
-    for(var k=0;k<6;k++) rbox(g,.6,22,1.1,.5,slot,side*(W/2+.05),-9+k*2.1,-58);           // щели динамика
-    rbox(g,.8,17,8,1.5,slot,side*(W/2+.1),-13,-12);                                        // окно колёсика
+    for(var k=0;k<6;k++) rbox(g,.6,20,1,.5,slot,side*(W/2+.05),-8.6+k*1.6,-52);            // щели динамика
   });
-  box(g,W-3.2,9.8,1.6,bodyMat,0,-7.7,Z1-.8);                              // передняя стенка
-  box(g,W-3.2,BACK_Y+12.6,1.6,bodyMat,0,(BACK_Y-12.6)/2,Z0+.8);           // задняя стенка (выше)
+  box(g,W-3.2,7.8,1.6,bodyMat,0,-6.7,Z1-.8);                               // передняя стенка
+  box(g,W-3.2,BACK_Y+10.6,1.6,bodyMat,0,(BACK_Y-10.6)/2,Z0+.8);           // задняя стенка (выше)
   var dark=mat("#0c0c0d",{roughness:.4}), metal=mat("#a9adb2",{metalness:.8,roughness:.3});
-  [-44,-33].forEach(function(x){ var r=cyl(g,2.6,1,metal,x,-3,Z0-.2,32); r.rotation.x=Math.PI/2; var hh=cyl(g,1.8,1.2,dark,x,-3,Z0-.3,24); hh.rotation.x=Math.PI/2; });
+  [-42,-31].forEach(function(x){ var r=cyl(g,2.6,1,metal,x,-3,Z0-.2,32); r.rotation.x=Math.PI/2; var hh=cyl(g,1.8,1.2,dark,x,-3,Z0-.3,24); hh.rotation.x=Math.PI/2; });
   rbox(g,9.2,1.2,3.4,1.6,metal,-6,-4.7,Z0-.1); rbox(g,7.6,1.4,2,1,dark,-6,-4,Z0-.2);   // USB-C
   box(g,1.6,1.6,.6,mat("#33d17a",{emissive:"#1a8a44"}),3,-3,Z0-.3);                     // светодиод заряда
   rbox(g,13,1.2,3,1.4,dark,16,-4.5,Z0-.1);                                                  // microSD
-  rbox(g,12,1.2,4,1.6,dark,42,-5,Z0-.1); box(g,4,3,2.4,mat("#e2621b"),40,-3,Z0-.8);        // ползунок питания
+  rbox(g,12,1.2,4,1.6,dark,40,-5,Z0-.1); box(g,4,3,2.4,mat("#e2621b"),38,-3,Z0-.8);        // ползунок питания
 })(G.shell);
 
 // ----- нижняя крышка -----------------------------------------------------------
 (function(g){
-  var wall=new THREE.ExtrudeGeometry((function(){ var s=rrShape(W,D,2); s.holes.push(rrShape(W-3,D-3,1)); return s; })(),{depth:8,bevelEnabled:false,curveSegments:10});
-  wall.rotateX(-Math.PI/2); var wm=new THREE.Mesh(wall,mat("#bdbab4",{roughness:.6})); wm.position.set(0,-20.6,(Z0+Z1)/2); g.add(wm);
+  var wall=new THREE.ExtrudeGeometry((function(){ var s=rrShape(W,D,2); s.holes.push(rrShape(W-3,D-3,1)); return s; })(),{depth:4,bevelEnabled:false,curveSegments:10});
+  wall.rotateX(-Math.PI/2); var wm=new THREE.Mesh(wall,mat("#bdbab4",{roughness:.6})); wm.position.set(0,-14.6,(Z0+Z1)/2); g.add(wm);
   var base=new THREE.ExtrudeGeometry(rrShape(W,D,2),{depth:1.6,bevelEnabled:true,bevelThickness:.8,bevelSize:.8,bevelSegments:3,curveSegments:10});
-  base.rotateX(-Math.PI/2); var bm=new THREE.Mesh(base,mat("#bdbab4",{roughness:.6})); bm.position.set(0,-22,(Z0+Z1)/2); g.add(bm);
-  [[-50,-64],[50,-64],[-50,66],[50,66]].forEach(function(p){ cyl(g,4,1.4,mat("#222"),p[0],-22.6,p[1]); });
-  rbox(g,1.6,26,2.6,.6,mat("#0c0c0d"),-60,-17,30); // окно GPIO на левом боку
+  base.rotateX(-Math.PI/2); var bm=new THREE.Mesh(base,mat("#bdbab4",{roughness:.6})); bm.position.set(0,-16,(Z0+Z1)/2); g.add(bm);
+  [[-48,-60],[48,-60],[-48,66],[48,66]].forEach(function(p){ cyl(g,4,1,mat("#222"),p[0],-16.4,p[1]); });
+  rbox(g,1.6,26,2.2,.6,mat("#0c0c0d"),-58,-14.2,-46); // окно GPIO на левом боку
 })(G.bottom);
 
 // ----- экран (на наклонной панели) ------------------------------------------------
 var scrImg={}, scrTex=new THREE.Texture(); scrTex.encoding=THREE.sRGBEncoding; scrTex.anisotropy=8;
 function setScreen(name){ var im=scrImg[name]; if(!im){ im=new Image(); im.onload=function(){ scrTex.image=im; scrTex.needsUpdate=true; }; im.src=SCREENS[name]; scrImg[name]=im; } else { scrTex.image=im; scrTex.needsUpdate=true; } }
 (function(g){ var h=hinge(g);
-  rbox(h,46,35,1.2,1.5,mat("#060607",{roughness:.15,metalness:.2}),0,-.2,JOG_ZL);
+  rbox(h,44,33.6,1.2,1.5,mat("#060607",{roughness:.15,metalness:.2}),0,-.2,JOG_ZL);
   var scr=new THREE.Mesh(new THREE.PlaneGeometry(40.8,30.6),new THREE.MeshBasicMaterial({map:scrTex,toneMapped:false}));
   scr.rotation.x=-Math.PI/2; scr.position.set(0,1.02,JOG_ZL); h.add(scr);
 })(G.screen);
@@ -315,7 +314,7 @@ var jogObjs=[];
     top.position.y=2.75; p.add(top);
     cyl(p,1,1.2,rim,0,3.4,0,16);                                                              // ось
     p.userData={ctl:"JOG"+i,spin:0,auto:0}; jogObjs.push(p);
-    box(h,14,1.6,14,mat("#1c4f3a"),sd*JOG_X,-6.6,JOG_ZL);                                    // плата AS5600 под диском
+    box(h,12,1.6,12,mat("#1c4f3a"),sd*JOG_X,-6.6,JOG_ZL);                                    // плата AS5600 под диском
   });
 })(G.jogs);
 
@@ -332,10 +331,8 @@ function sideWheel(g,side,z,id){ var k=new THREE.Group(); k.position.set(side*(W
   k.userData={ctl:id,axis:"z"}; return k; }
 var knobObjs={};
 (function(g){
-  KNOBS.forEach(function(k){ knobObjs[k[0]]=knob(g,k[1],k[2],6.3,9,k[0]); });
-  knobObjs.WHEEL=sideWheel(g,1,-12,"WHEEL");        // DATA — правый бок, под большой палец
-  knobObjs.VOL=sideWheel(g,-1,-12,"VOL");           // громкость — левый бок
-  var f=new THREE.Group(); f.position.set(-50,0,17); g.add(f); f.userData.ctl="FADER";
+  KNOBS.forEach(function(k){ knobObjs[k[0]]=knob(g,k[1],k[2],6,8,k[0]); });
+  var f=new THREE.Group(); f.position.set(-48,0,16); g.add(f); f.userData.ctl="FADER";
   box(f,2,4,2,mat("#111"),0,1,0); rbox(f,9,6.5,5,1.4,mat("#2a2b2e",{roughness:.45}),0,2,0,.6); box(f,8,.3,.8,lineMat,0,7.05,0);
   knobObjs.FADER=f;
 })(G.knobs);
@@ -346,7 +343,7 @@ var siliconeMat=mat("#2f3236",{roughness:.95});
 function labelTex(text,color,bg){ return canvasTex(256,128,function(c,w,h){ c.fillStyle=bg; c.fillRect(0,0,w,h); c.fillStyle=color;
   c.font="700 "+(text.length>6?36:(text.length>5?44:54))+"px 'JetBrains Mono',monospace"; c.textAlign="center"; c.textBaseline="middle"; c.fillText(text,w/2,h/2+3); }); }
 (function(g){
-  rbox(g,82,82,1,3,mat("#26282c",{roughness:.95,transparent:true,opacity:.95}),0,-6.4,30); // основа коврика
+  rbox(g,77,77,1,3,mat("#26282c",{roughness:.95,transparent:true,opacity:.95}),0,-5.6,28.5); // основа коврика
   for(var r=0;r<4;r++) for(var c=0;c<4;c++){ var i=r*4+c, x=PAD_X[c], z=PAD_Z[r];
     var p=new THREE.Group(); p.position.set(x,0,z); g.add(p);
     // светящаяся «юбка» (видна в щели вокруг пэда)
@@ -375,40 +372,39 @@ var pcbTex=canvasTex(W*4,D*4,function(c,w,h){ var k=4; function X(x){return (x+W
     c.fillStyle="#f4f1e8"; c.fillRect(X(x-1.5),Z(z+s/2+.6),3*k,1.6*k); }
   for(var r=0;r<4;r++) for(var q=0;q<4;q++) comb(PAD_X[q],PAD_Z[r],12);
   BTN.forEach(function(b){ comb(b[2],b[3],5); });
-  c.fillStyle="#e9e6dc"; c.font="700 "+(4*k)+"px 'JetBrains Mono',monospace"; c.textAlign="center"; c.fillText("SAMPLEY · MAIN v1",X(0),Z(71));
+  c.fillStyle="#e9e6dc"; c.font="700 "+(4*k)+"px 'JetBrains Mono',monospace"; c.textAlign="center"; c.fillText("SAMPLEY · MAIN v1",X(0),Z(69));
 });
 pcbTex.repeat.set(1/W,1/D); pcbTex.offset.set(.5,.5);
 (function(g){
   var geo=new THREE.ExtrudeGeometry(rrShape(W-4,D-4,7),{depth:1.6,bevelEnabled:false,curveSegments:8}); geo.rotateX(-Math.PI/2);
-  var m=new THREE.Mesh(geo,[mat("#ffffff",{map:pcbTex,roughness:.5}),mat("#173f2f")]); m.position.set(0,-8.2,(Z0+Z1)/2); g.add(m);
+  var m=new THREE.Mesh(geo.scale(1,0.75,1),[mat("#ffffff",{map:pcbTex,roughness:.5}),mat("#173f2f")]); m.position.set(0,-6.8,(Z0+Z1)/2); g.add(m);
   var chip=mat("#151617",{roughness:.4});
-  box(g,7,1,7,chip,-14,-7.1,-20.5); box(g,5,1,5,chip,6,-7.1,-26); box(g,4,1,4,chip,20,-7.1,-26);   // RP2040, WM8960, BQ25895
-  box(g,5,1,4,chip,40,-7.1,-26);
+  box(g,7,.9,7,chip,-30,-7.3,-24); box(g,5,.9,5,chip,-8,-7.3,-24); box(g,4,.9,4,chip,8,-7.3,-24);   // снизу платы: RP2040, WM8960, BQ25895
+  box(g,5,.9,4,chip,26,-7.3,-24);
   // энкодеры и потенциометры
-  KNOBS.forEach(function(k){ box(g,12,5,13,mat("#5c5f63",{metalness:.6}),k[1],-4.2,k[2]); });
-  box(g,8,6,54,mat("#3a3c40",{metalness:.4}),-50,-3.8,17); // фейдер 45 мм
-  [-1,1].forEach(function(sd){ box(g,6,8,8,mat("#5c5f63",{metalness:.6}),sd*(W/2-12),-12.5,-12); }); // энкодеры колёсиков
-  // гнездо Pi снизу
-  box(g,51,8.5,5,mat("#111"),-6,-12.5,-34);
+  KNOBS.forEach(function(k){ box(g,11,2.6,12,mat("#5c5f63",{metalness:.6}),k[1],-4.3,k[2]); });   // низкие энкодеры
+  box(g,7,2.6,50,mat("#3a3c40",{metalness:.4}),-48,-4.3,16); // низкий фейдер 45 мм
+  box(g,51,3,5,mat("#111"),0,-8.6,-38);     // низкий разъём к Pi (2.5 мм вместо гребёнки 8.5 мм)
 })(G.pcb);
 
 // ----- Pi Zero 2 W ---------------------------------------------------------------
 (function(g){
-  var p=new THREE.Group(); p.position.set(-6,-14.8,-21); g.add(p);
+  var p=new THREE.Group(); p.position.set(0,-12.2,-49); g.add(p);  // под наклонной частью, где корпус выше
   box(p,65,1.4,30,mat("#2e7d4a"),0,0,0); box(p,10,1.2,10,mat("#9ea3a8",{metalness:.7}),-2,1.3,3);
   box(p,51,2.5,5,mat("#111"),0,1.9,-11.5); box(p,11,1.4,12,mat("#b0b4b8",{metalness:.6}),-27,1.4,3);
 })(G.pi);
 
 // ----- аккумулятор и динамики -----------------------------------------------------
-(function(g){ rbox(g,90,55,6,3,mat("#7b8fa6",{roughness:.4,metalness:.3}),0,-20.2,32);
-  var lab=canvasTex(512,300,function(c,w,h){ c.fillStyle="#7b8fa6"; c.fillRect(0,0,w,h); c.fillStyle="#ffffff"; c.font="700 54px 'JetBrains Mono',monospace"; c.textAlign="center"; c.fillText("Li-Po 3.7 V",w/2,130); c.font="500 40px 'JetBrains Mono',monospace"; c.fillText("≈ 4000 mAh · NTC",w/2,200); });
-  decal(g,64,36,lab,0,-14.15,32); })(G.battery);
+(function(g){ rbox(g,85,55,5,3,mat("#7b8fa6",{roughness:.4,metalness:.3}),0,-14.2,30);
+  rbox(g,85,55,.8,3,mat("#e9e3d0",{roughness:.95}),0,-8.6,30);                       // мягкая прокладка, над ней зазор
+  var lab=canvasTex(512,300,function(c,w,h){ c.fillStyle="#7b8fa6"; c.fillRect(0,0,w,h); c.fillStyle="#ffffff"; c.font="700 54px 'JetBrains Mono',monospace"; c.textAlign="center"; c.fillText("Li-Po 3.7 V",w/2,130); c.font="500 40px 'JetBrains Mono',monospace"; c.fillText("≈ 3000 mAh · NTC",w/2,200); });
+  decal(g,60,34,lab,0,-9.15,30); })(G.battery);
 (function(g){ var cham=mat("#8a8f96",{metalness:.4,roughness:.4}), cone=mat("#1a1a1a",{roughness:.6});
   [-1,1].forEach(function(sd){                                     // динамики в закрытых камерах, звук — в щели по бокам
-    rbox(g,13,32,17,2,cham,sd*(W/2-8.6),-16,-58);
-    var c=cyl(g,7,.8,cone,sd*(W/2-1.9),-7.5,-58,32); c.rotation.z=Math.PI/2; });
+    rbox(g,12,28,12,2,cham,sd*(W/2-8),-14,-52);
+    var c=cyl(g,6,.8,cone,sd*(W/2-1.9),-7.6,-52,32); c.rotation.z=Math.PI/2; });
   var h=hinge(g);                                                   // микрофоны в резиновых башмачках
-  [-1,1].forEach(function(sd){ cyl(h,2.6,2.2,mat("#3a3c40",{roughness:.95}),sd*56.5,-4.2,-35.2,20); box(h,3.4,1,3.4,mat("#111"),sd*56.5,-3.1,-35.2); });
+  [-1,1].forEach(function(sd){ cyl(h,2.6,2.2,mat("#3a3c40",{roughness:.95}),sd*54,-4.2,-33.2,20); box(h,3.4,1,3.4,mat("#111"),sd*54,-3.1,-33.2); });
 })(G.speakers);
 
 // ----- камера: вращение пальцем/мышью --------------------------------------------
@@ -445,22 +441,22 @@ function osc(type,f0,f1,dur,dec,peak,t){ var o=AC.createOscillator(), g=AC.creat
 function noise(hp,dec,peak,t,delay){ var s=AC.createBufferSource(), f=AC.createBiquadFilter(), g=AC.createGain(); s.buffer=noiseBuf(); f.type="highpass"; f.frequency.value=hp; env(g,t+(delay||0),.001,dec,peak); s.connect(f); f.connect(g); g.connect(master); s.start(t+(delay||0)); s.stop(t+(delay||0)+dec+.1); }
 function note(n){ return 440*Math.pow(2,(n-69)/12); }
 var SOUNDS=[
-  function(t,v){ osc("sine",160,45,.08,.35,v); },
-  function(t,v){ osc("triangle",200,170,.05,.1,v*.5); noise(1200,.12,v*.7,t); },
+  function(t,v){ osc("sine",160,45,.08,.35,v,t); },
+  function(t,v){ osc("triangle",200,170,.05,.1,v*.5,t); noise(1200,.12,v*.7,t); },
   function(t,v){ noise(7000,.035,v*.5,t); },
   function(t,v){ noise(6500,.25,v*.4,t); },
   function(t,v){ [0,.011,.022].forEach(function(d){ noise(1500,.02,v*.6,t,d); }); noise(1500,.12,v*.5,t,.03); },
-  function(t,v){ osc("sine",330,220,.04,.25,v*.8); },
-  function(t,v){ osc("sine",240,160,.04,.28,v*.8); },
-  function(t,v){ osc("sine",165,110,.04,.32,v*.8); },
-  function(t,v){ osc("sawtooth",note(36),0,0,.35,v*.35); },
-  function(t,v){ osc("sawtooth",note(39),0,0,.35,v*.35); },
-  function(t,v){ osc("sawtooth",note(41),0,0,.35,v*.35); },
-  function(t,v){ osc("sawtooth",note(43),0,0,.35,v*.35); },
-  function(t,v){ [60,63,67].forEach(function(n){ osc("triangle",note(n),0,0,.9,v*.18); }); },
-  function(t,v){ [58,62,65].forEach(function(n){ osc("triangle",note(n),0,0,.9,v*.18); }); },
-  function(t,v){ osc("square",1320,0,0,.06,v*.18); },
-  function(t,v){ osc("sine",2000,80,.25,.25,v*.5); }
+  function(t,v){ osc("sine",330,220,.04,.25,v*.8,t); },
+  function(t,v){ osc("sine",240,160,.04,.28,v*.8,t); },
+  function(t,v){ osc("sine",165,110,.04,.32,v*.8,t); },
+  function(t,v){ osc("sawtooth",note(36),0,0,.35,v*.35,t); },
+  function(t,v){ osc("sawtooth",note(39),0,0,.35,v*.35,t); },
+  function(t,v){ osc("sawtooth",note(41),0,0,.35,v*.35,t); },
+  function(t,v){ osc("sawtooth",note(43),0,0,.35,v*.35,t); },
+  function(t,v){ [60,63,67].forEach(function(n){ osc("triangle",note(n),0,0,.9,v*.18,t); }); },
+  function(t,v){ [58,62,65].forEach(function(n){ osc("triangle",note(n),0,0,.9,v*.18,t); }); },
+  function(t,v){ osc("square",1320,0,0,.06,v*.18,t); },
+  function(t,v){ osc("sine",2000,80,.25,.25,v*.5,t); }
 ];
 function scratchSound(){ if(!audio()) return; var t=AC.currentTime+.01;
   [0,.16,.32,.42].forEach(function(d,k){ var s=AC.createBufferSource(), f=AC.createBiquadFilter(), g=AC.createGain(); s.buffer=noiseBuf();
@@ -471,8 +467,20 @@ function play(i,vel){ if(!audio()) return; SOUNDS[i](AC.currentTime+.005,vel||.9
 
 // ----- состояние пэдов/кнопок ----------------------------------------------------
 var mode="play";
+// ----- подсветка: те же эффекты, что считает микроконтроллер (firmware/pico/main.py) -----
+var LIGHTS=[["classic","Классика"],["wave","Волна"],["sparkle","Искры"],["rainbow","Радуга"],["column","Столб"],["off","Без эффектов"]];
+var lightIx=1, ripples=[];
+function lightHit(i,vel){ if(LIGHTS[lightIx][0]==="off") return; ripples.push({r:Math.floor(i/4),c:i%4,t0:performance.now()/1000,col:new THREE.Color(ROWC[Math.floor(i/4)]),vel:vel||1,seed:(Math.random()*65535)|0}); if(ripples.length>8) ripples.shift(); }
+function padFx(i,t){ var mode=LIGHTS[lightIx][0], r=Math.floor(i/4), c=i%4, out=new THREE.Color(0,0,0);
+  if(mode==="rainbow"){ out.setHSL((t*.12+(r+c)*.09)%1,1,.5).multiplyScalar(.35); }
+  ripples.forEach(function(p){ var age=t-p.t0, d=Math.hypot(r-p.r,c-p.c), k=0, white=(d===0)?Math.exp(-age*5)*p.vel:0;
+    if(mode==="wave"){ var ring=Math.exp(-Math.pow((d-age*7)/.6,2)); k=ring*Math.exp(-age*1.7)*p.vel; }
+    else if(mode==="sparkle"){ if(d>0&&d<=1.5&&((p.seed>>(i%16))&1)) k=Math.exp(-age*4)*p.vel*(.6+.4*Math.sin(age*40+i)); else if(d===0) k=Math.exp(-age*3)*p.vel; }
+    else if(mode==="column"){ if(c===p.c&&r<=p.r&&(p.r-r)<=age*14) k=Math.exp(-age*2.4)*p.vel*(1-(p.r-r)*.15); }
+    out.r+=p.col.r*k*2.2+white; out.g+=p.col.g*k*2.2+white; out.b+=p.col.b*k*2.2+white; });
+  return out; }
 function hitPad(i,down){ var p=pads[i].userData;
-  if(down){ p.press=1; p.glow=1; play(i,.95); setScreenFor(); }
+  if(down){ p.press=1; lightHit(i,1); play(i,.95); setScreenFor(); }
   else p.press=0; }
 var held={};
 var KEYS="1234qwerasdfzxcv";
@@ -489,16 +497,16 @@ function onClick(hit){
     if(hit.btn==="PLAY"){ setBeat(true); } if(hit.btn==="STOP"){ setBeat(false); }
     if(hit.btn==="BANK"){ mode=(mode==="bank_b")?"play":"bank_b"; setScreen(mode); }
     toast(def[1]+" — "+def[8]); return; }
-  if(hit.ctl){ var names={K1:"K1 — громкость пэда",K2:"K2 — тон",K3:"K3 — панорама",VOL:"VOL — колёсико громкости на левом боку",WHEEL:"DATA — колёсико на правом боку: темп, выбор, срезы",JOG0:"Вертушка L — скретч",JOG1:"Вертушка R — скретч",FADER:"Фейдер — тон всех пэдов или фильтр"};
+  if(hit.ctl){ var names={K1:"K1 — громкость пэда",K2:"K2 — тон",K3:"K3 — панорама",JOG0:"Вертушка L — скретч",JOG1:"Вертушка R — скретч",FADER:"Фейдер — тон всех пэдов или фильтр"};
     if(hit.ctl.indexOf("JOG")===0){ var jg=jogObjs[+hit.ctl[3]]; jg.userData.spin=(jg.userData.spin||0)+2.4; scratchSound(); toast(names[hit.ctl]+" — вжик-вжик!"); return; }
-    var o=knobObjs[hit.ctl]; if(hit.ctl==="FADER"){ o.userData.goal=(o.userData.goal||0)>0?-16:16; } else o.userData.spin=(o.userData.spin||0)+1.2; toast(names[hit.ctl]); return; }
+    var o=knobObjs[hit.ctl]; if(hit.ctl==="FADER"){ o.userData.goal=(o.userData.goal||0)>0?-15:15; } else o.userData.spin=(o.userData.spin||0)+1.2; toast(names[hit.ctl]); return; }
   if(hit.part) select(hit.part); }
 
 // ----- бит ------------------------------------------------------------------------
 var BEAT=[[0,6,8,11],[4,12],[0,2,4,6,8,10,12,14],[14],[],[],[],[],[0],[6],[10],[]], beatOn=false, beatStep=0, beatNext=0;
 function setBeat(on){ beatOn=on; if(on){ audio(); beatStep=0; beatNext=0; } document.querySelector('[data-act="beat"]').setAttribute("aria-pressed",on); }
 function beatTick(now){ if(!beatOn||!AC) return; var spb=60/104/4; if(!beatNext) beatNext=AC.currentTime+.05;
-  while(beatNext<AC.currentTime+.1){ var s=beatStep%16; BEAT.forEach(function(steps,pad){ if(steps.indexOf(s)>=0){ SOUNDS[pad](beatNext,.8); (function(p,t){ setTimeout(function(){ pads[p].userData.glow=1; pads[p].userData.press=.5; setTimeout(function(){ pads[p].userData.press=0; },90); },Math.max(0,(t-AC.currentTime)*1000)); })(pad,beatNext); } });
+  while(beatNext<AC.currentTime+.1){ var s=beatStep%16; BEAT.forEach(function(steps,pad){ if(steps.indexOf(s)>=0){ SOUNDS[pad](beatNext,.8); (function(p,t){ setTimeout(function(){ lightHit(p,.8); pads[p].userData.press=.5; setTimeout(function(){ pads[p].userData.press=0; },90); },Math.max(0,(t-AC.currentTime)*1000)); })(pad,beatNext); } });
     beatNext+=spb; beatStep++; } }
 
 // ----- разобрать, виды, подписи, выбор ------------------------------------------
@@ -511,13 +519,14 @@ document.getElementById("toolbar").addEventListener("click",function(e){ var b=e
   if(a==="back") setGoal(Math.PI-.35,1.25,260,-8);
   if(a==="side") setGoal(Math.PI/2,1.5,330,-4);
   if(a==="beat"){ setBeat(!beatOn); }
+  if(a==="light"){ lightIx=(lightIx+1)%LIGHTS.length; b.textContent="Свет: "+LIGHTS[lightIx][1]; ripples=[]; toast("Подсветка: "+LIGHTS[lightIx][1]+" — нажми на пэд"); lightHit(5,1); }
   if(a==="labels"){ showLabels=!showLabels; b.setAttribute("aria-pressed",showLabels); labelsEl.innerHTML=""; } });
 select=function(id){ selected=id; var p=PARTS.filter(function(x){return x.id===id;})[0]; if(!p) return;
   document.getElementById("infoT").textContent=p.name; var ul=document.createElement("ul"); p.items.forEach(function(t){ var li=document.createElement("li"); li.textContent=t; ul.appendChild(li); });
   var body=document.getElementById("infoB"); body.innerHTML=""; var sm=document.createElement("p"); sm.style.margin="0"; sm.style.color="var(--muted)"; sm.textContent=p.short; body.appendChild(sm); body.appendChild(ul); info.hidden=false;
   if(["pcb","pi","battery","speakers","bottom"].indexOf(id)>=0&&!exploded) document.querySelector('[data-act="explode"]').click(); };
 document.getElementById("infoX").onclick=function(){ info.hidden=true; selected=null; };
-var LABELS=[["Экран 2.0″",0,12,-56,"screen"],["Вертушка L",-41,16,-56,"jogs"],["Вертушка R",41,16,-56,"jogs"],["K1–K3",0,11,-29,"knobs"],["DATA (бок)",64,-13,-12,"knobs"],["VOL (бок)",-64,-13,-12,"knobs"],["Фейдер",-50,8,17,"knobs"],["STUTTER",50,4,23,"mat"],["Мягкие пэды",0,6,30,"mat"],["Динамик",62,-6,-58,"speakers"],["Pi Zero 2 W",-30,-14,-21,"pi"],["Аккумулятор",30,-14,40,"battery"],["Разъёмы",0,-3,-77,"shell"]];
+var LABELS=[["Экран 2.0″",0,11,-51,"screen"],["Вертушка L",-38,14,-51,"jogs"],["Вертушка R",38,14,-51,"jogs"],["K1–K3",0,10,-27,"knobs"],["Фейдер",-48,8,16,"knobs"],["STUTTER",48,4,20,"mat"],["Мягкие пэды",0,6,28,"mat"],["Динамик",60,-5,-52,"speakers"],["Pi Zero 2 W",0,-11,-49,"pi"],["Аккумулятор",30,-9,40,"battery"],["Разъёмы",0,-3,-72,"shell"]];
 
 // ----- цикл ---------------------------------------------------------------------
 var v=new THREE.Vector3(), last=performance.now();
@@ -530,14 +539,15 @@ function frame(now){ var dt=Math.min(.05,(now-last)/1000); last=now;
     var dim=selected&&selected!==p.id; G[p.id].traverse(function(o){ if(o.material&&!Array.isArray(o.material)){ if(o.userData.baseOp===undefined) o.userData.baseOp=o.material.opacity; } }); });
   var t=now/1000;
   pads.forEach(function(p,i){ var u=p.userData; u.cur=(u.cur||0)+((u.press?-2.6*u.press:0)-(u.cur||0))*Math.min(1,dt*30); p.position.y=u.cur;
-    u.glow=Math.max(0,u.glow-dt*2.2); var idle=.18+.06*Math.sin(t*1.6+i*.4);
-    var col=new THREE.Color(u.base).lerp(new THREE.Color("#ffffff"),u.glow*.8);
-    u.skirtM.emissive.copy(col); u.skirtM.emissiveIntensity=idle+u.glow*1.6; u.topM.emissive.copy(col); u.topM.emissiveIntensity=u.glow*.35; });
+    var idle=.16+.05*Math.sin(t*1.6+i*.4), fx=padFx(i,t);
+    var col=new THREE.Color(u.base).multiplyScalar(idle).add(fx.clone().multiplyScalar(1.6));
+    u.skirtM.emissive.copy(col); u.skirtM.emissiveIntensity=1; u.topM.emissive.copy(fx); u.topM.emissiveIntensity=.9; });
+  while(ripples.length&&t-ripples[0].t0>1.6) ripples.shift();
   Object.keys(btnObjs).forEach(function(k){ var u=btnObjs[k].userData; u.cur=(u.cur||0)+((u.press?-1.2:0)-(u.cur||0))*Math.min(1,dt*30); btnObjs[k].position.y=u.cur;
     var on=(k==="PLAY"&&beatOn)||(screenFor[k]&&mode===screenFor[k])||(k==="BANK"&&mode==="bank_b")||(k==="REC"&&false);
     u.led.emissive.set(k==="PLAY"?"#2fe06a":(k==="REC"||k==="SAMPLE")?"#ff3b30":"#ff8a3d"); u.led.emissiveIntensity=on?1.6:.08; });
   Object.keys(knobObjs).forEach(function(k){ var o=knobObjs[k]; if(o.userData.spin){ var s=Math.min(o.userData.spin,dt*4); if(o.userData.axis==="z") o.children[0].rotation.y-=s; else o.rotation.y-=s; o.userData.spin-=s; }
-    if(k==="FADER"){ var g=o.userData.goal||0; o.position.z+=(17+g-o.position.z)*Math.min(1,dt*6); } });
+    if(k==="FADER"){ var g=o.userData.goal||0; o.position.z+=(16+g-o.position.z)*Math.min(1,dt*6); } });
   jogObjs.forEach(function(j,i){ var u=j.userData, s=0;
     if(u.spin){ s=Math.min(u.spin,dt*9); u.spin-=s; j.rotation.y+=(i?-1:1)*s*(Math.sin(t*22)>0?1:-1); }   // скретч туда-сюда
     if(beatOn&&!reduce) j.rotation.y-=dt*3.49*(i?.7:1); });                                               // 33⅓ об/мин
